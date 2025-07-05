@@ -1,0 +1,16 @@
+---
+deployment:
+  tasks:
+    - export DEPLOYPATH=/home/username/public_html/
+    - /bin/cp -R * $DEPLOYPATH
+    - /bin/cp .htaccess $DEPLOYPATH
+    - /bin/cp .env $DEPLOYPATH
+    - cd $DEPLOYPATH
+    - /bin/cp .env.example .env
+    - /usr/local/bin/php /usr/local/bin/composer install
+    - /usr/local/bin/php artisan key:generate
+    - /usr/local/bin/php artisan migrate
+    - /usr/local/bin/php artisan storage:link
+    - /usr/local/bin/php artisan config:cache
+    - /usr/local/bin/php artisan route:cache
+    - /usr/local/bin/php artisan view:cache
