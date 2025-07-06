@@ -1,61 +1,219 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# 🍅 Sistem Pakar Kematangan Tomat Berbasis AI
 
 <p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
+  <img src="https://img.shields.io/badge/Laravel-11.x-FF2D20?style=for-the-badge&logo=laravel&logoColor=white" alt="Laravel">
+  <img src="https://img.shields.io/badge/PHP-8.2+-777BB4?style=for-the-badge&logo=php&logoColor=white" alt="PHP">
+  <img src="https://img.shields.io/badge/ESP32-IoT-000000?style=for-the-badge&logo=espressif&logoColor=white" alt="ESP32">
+  <img src="https://img.shields.io/badge/AI-Machine%20Learning-FF6B6B?style=for-the-badge&logo=tensorflow&logoColor=white" alt="AI">
 </p>
 
-## About Laravel
+<p align="center">
+  <img src="https://img.shields.io/badge/Status-Production%20Ready-4CAF50?style=flat-square" alt="Status">
+  <img src="https://img.shields.io/badge/Version-1.0.0-blue?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License">
+</p>
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+---
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## 🎯 Tentang Sistem
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+**Sistem Pakar Kematangan Tomat Berbasis AI** adalah solusi inovatif yang mengintegrasikan teknologi **Internet of Things (IoT)**, **Machine Learning**, dan **Web Application** untuk mendeteksi tingkat kematangan tomat secara otomatis dan akurat.
 
-## Learning Laravel
+Sistem ini menggunakan pendekatan multi-algoritma AI yang mencakup:
+- 🌳 **Decision Tree** - Untuk klasifikasi berbasis aturan
+- 🎯 **K-Nearest Neighbors (KNN)** - Untuk pencocokan pola
+- 🌲 **Random Forest** - Untuk ensemble learning
+- 🤖 **Ensemble Method** - Kombinasi semua algoritma untuk akurasi maksimal
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+### ✨ Fitur Utama
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
+- 📊 **Analisis RGB Real-time** - Deteksi warna tomat menggunakan sensor TCS34725
+- 🌡️ **Monitoring Lingkungan** - Suhu dan kelembaban dengan sensor DHT11
+- 📱 **Web Dashboard** - Interface modern dengan Filament Admin Panel
+- 📈 **Machine Learning** - 4 algoritma AI terintegrasi
+- 📋 **Data Management** - Import/Export Excel untuk training data
+- 🔄 **IoT Integration** - ESP32 dengan komunikasi WiFi
+- 📊 **Real-time Analytics** - Grafik dan statistik akurasi model
+- 🎨 **Modern UI/UX** - Responsive design dengan Tailwind CSS
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+---
 
-## Laravel Sponsors
+## 🚀 Quick Start
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+### Prasyarat
+- PHP 8.2+
+- Composer
+- Node.js & NPM
+- MySQL/PostgreSQL
+- Arduino IDE (untuk ESP32)
 
-### Premium Partners
+### Instalasi
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+```bash
+# Clone repository
+git clone https://github.com/username/sistem-pakar-kematangan-tomat-ai.git
+cd sistem-pakar-kematangan-tomat-ai
 
-## Contributing
+# Install dependencies
+composer install
+npm install
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+# Setup environment
+cp .env.example .env
+php artisan key:generate
 
-## Code of Conduct
+# Database setup
+php artisan migrate
+php artisan db:seed
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+# Build assets
+npm run build
 
-## Security Vulnerabilities
+# Start server
+php artisan serve
+```
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+---
 
-## License
+## 📚 Dokumentasi Lengkap
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+### 📖 Panduan Utama
+
+| 📋 Dokumentasi | 📝 Deskripsi | 🔗 Link |
+|----------------|---------------|----------|
+| **Import Data Excel** | Panduan lengkap import/export data training untuk machine learning | [📄 PANDUAN_IMPORT_EXCEL.md](./PANDUAN_IMPORT_EXCEL.md) |
+| **Arduino ESP32** | Setup hardware IoT sensor, wiring diagram, dan konfigurasi | [🔧 arduino/README.md](./arduino/README.md) |
+
+### 🎯 Fitur Sistem
+
+#### 🤖 Machine Learning Engine
+- **Decision Tree**: Klasifikasi berbasis aturan dengan akurasi tinggi
+- **K-Nearest Neighbors**: Pencocokan pola berdasarkan data historis
+- **Random Forest**: Ensemble learning untuk prediksi robust
+- **Ensemble Method**: Kombinasi semua algoritma untuk hasil optimal
+
+#### 📊 Data Management
+- **Training Data**: Kelola dataset RGB untuk training model
+- **Import Excel**: Upload data training dalam format Excel
+- **Export Data**: Download data untuk analisis eksternal
+- **Data Validation**: Validasi otomatis format dan nilai data
+
+#### 🌐 IoT Integration
+- **ESP32 Sensor**: Pembacaan RGB, suhu, dan kelembaban
+- **Real-time Data**: Streaming data sensor ke dashboard
+- **WiFi Communication**: Koneksi nirkabel ke server
+- **OLED Display**: Tampilan status dan data di perangkat
+
+---
+
+## 🏗️ Arsitektur Sistem
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   ESP32 Sensor  │───▶│  Laravel API    │───▶│   Web Dashboard │
+│                 │    │                 │    │                 │
+│ • TCS34725 RGB  │    │ • ML Algorithms │    │ • Filament UI   │
+│ • DHT11 Temp    │    │ • Data Storage  │    │ • Real-time     │
+│ • OLED Display  │    │ • API Endpoints │    │ • Analytics     │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+```
+
+---
+
+## 🔧 Teknologi Stack
+
+### Backend
+- **Framework**: Laravel 11.x
+- **Database**: MySQL/PostgreSQL
+- **API**: RESTful API
+- **Admin Panel**: Filament 3.x
+
+### Frontend
+- **CSS Framework**: Tailwind CSS
+- **JavaScript**: Alpine.js
+- **Charts**: Chart.js
+- **Icons**: Heroicons
+
+### IoT & Hardware
+- **Microcontroller**: ESP32
+- **Color Sensor**: TCS34725
+- **Environment**: DHT11
+- **Display**: OLED SSD1306
+
+### Machine Learning
+- **Algorithms**: Decision Tree, KNN, Random Forest
+- **Data Processing**: PHP ML Library
+- **Training**: Custom implementation
+
+---
+
+## 📈 Tingkat Kematangan
+
+Sistem dapat mendeteksi 4 tingkat kematangan tomat:
+
+| 🎨 Tingkat | 📊 Karakteristik RGB | 📝 Deskripsi |
+|------------|----------------------|---------------|
+| 🟢 **Mentah** | Dominan hijau (G > R, G > B) | Tomat belum matang, keras |
+| 🟡 **Setengah Matang** | Campuran hijau-kuning | Proses pematangan |
+| 🔴 **Matang** | Dominan merah (R > G, R > B) | Siap konsumsi |
+| 🟤 **Busuk** | Warna gelap, nilai rendah | Tidak layak konsumsi |
+
+---
+
+## 🎮 Demo & Testing
+
+### Web Interface
+1. Akses dashboard di `http://localhost:8000`
+2. Login dengan kredensial admin
+3. Test sensor simulation di `/test/sensor`
+4. Lihat analytics di admin panel
+
+### Hardware Testing
+1. Upload kode Arduino ke ESP32
+2. Konfigurasi WiFi credentials
+3. Monitor Serial untuk debug
+4. Test dengan sampel tomat
+
+---
+
+## 🤝 Kontribusi
+
+Kami menyambut kontribusi dari komunitas! Silakan:
+
+1. Fork repository ini
+2. Buat branch fitur (`git checkout -b feature/AmazingFeature`)
+3. Commit perubahan (`git commit -m 'Add some AmazingFeature'`)
+4. Push ke branch (`git push origin feature/AmazingFeature`)
+5. Buat Pull Request
+
+---
+
+## 📄 Lisensi
+
+Proyek ini dilisensikan di bawah [MIT License](https://opensource.org/licenses/MIT).
+
+---
+
+## 👥 Tim Pengembang
+
+- **Backend Development**: Laravel & Machine Learning
+- **IoT Development**: ESP32 & Sensor Integration
+- **Frontend Development**: UI/UX & Dashboard
+- **Data Science**: Algorithm Training & Optimization
+
+---
+
+## 📞 Dukungan
+
+Jika Anda mengalami masalah atau memiliki pertanyaan:
+
+- 📧 **Email**: support@tomato-ai.com
+- 📱 **Issues**: [GitHub Issues](https://github.com/username/sistem-pakar-kematangan-tomat-ai/issues)
+- 📖 **Wiki**: [Project Wiki](https://github.com/username/sistem-pakar-kematangan-tomat-ai/wiki)
+
+---
+
+<p align="center">
+  <strong>🍅 Sistem Pakar Kematangan Tomat Berbasis AI</strong><br>
+  <em>Revolutionizing Agriculture with AI & IoT Technology</em>
+</p>
