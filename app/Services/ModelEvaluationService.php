@@ -48,23 +48,43 @@ class ModelEvaluationService
      */
     private function evaluateAlgorithm($algorithm)
     {
-        $trainingData = TrainingData::active()->get();
+        try {
+            $trainingData = TrainingData::active()->get();
 
-        // Tambahkan data klasifikasi yang sudah terverifikasi sebagai data training tambahan
-        $verifiedClassifications = Classification::where('is_verified', true)->get();
-        $classificationTrainingData = $verifiedClassifications->map(function($data) {
-            // Buat array biasa untuk menghindari masalah dengan getKey()
-            return [
-                'red' => $data->red_value,
-                'green' => $data->green_value,
-                'blue' => $data->blue_value,
-                'actual_class' => $data->actual_status ?? $data->predicted_status,
-                'is_active' => true
-            ];
-        });
+            // Tambahkan data klasifikasi yang sudah terverifikasi sebagai data training tambahan
+            $verifiedClassifications = Classification::where('is_verified', true)->get();
+            
+            // Validasi data mencukupi
+            $totalDataCount = $trainingData->count() + $verifiedClassifications->count();
+            if ($totalDataCount < 5) {
+                Log::warning("Insufficient data for algorithm evaluation: {$algorithm}", [
+                    'training_data_count' => $trainingData->count(),
+                    'verified_classifications_count' => $verifiedClassifications->count(),
+                    'total_count' => $totalDataCount
+                ]);
+                
+                return [
+                    'accuracy' => 0,
+                    'data_count' => $totalDataCount,
+                    'status' => 'insufficient_data',
+                    'confusion_matrix' => [],
+                    'detailed_metrics' => []
+                ];
+            }
+            
+            $classificationTrainingData = $verifiedClassifications->map(function($data) {
+                // Buat array biasa untuk menghindari masalah dengan getKey()
+                return [
+                    'red' => $data->red_value,
+                    'green' => $data->green_value,
+                    'blue' => $data->blue_value,
+                    'actual_class' => $data->actual_status ?? $data->predicted_status,
+                    'is_active' => true
+                ];
+            });
 
-        // Konversi training data Eloquent ke array untuk konsistensi
-        $trainingDataArray = $trainingData->map(function($data) {
+            // Konversi training data Eloquent ke array untuk konsistensi
+            $trainingDataArray = $trainingData->map(function($data) {
             return [
                 'red' => $data->red_value,
                 'green' => $data->green_value,
@@ -124,6 +144,23 @@ class ModelEvaluationService
             'confusion_matrix' => $confusionMatrix,
             'detailed_metrics' => $detailedMetrics
         ];
+        
+        } catch (\Exception $e) {
+            Log::error("Error in evaluateAlgorithm for {$algorithm}", [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            // Return default values jika terjadi error
+            return [
+                'accuracy' => 0,
+                'data_count' => 0,
+                'status' => 'error',
+                'confusion_matrix' => [],
+                'detailed_metrics' => [],
+                'error' => $e->getMessage()
+            ];
+        }
     }
 
     /**
@@ -161,14 +198,26 @@ class ModelEvaluationService
         $predictions = [];
 
         foreach ($testSet as $testData) {
-            // Tangani baik array maupun objek untuk kompatibilitas
-            $rgb = [
-                'red' => is_array($testData) ? $testData['red'] : $testData->red,
-                'green' => is_array($testData) ? $testData['green'] : $testData->green,
-                'blue' => is_array($testData) ? $testData['blue'] : $testData->blue
-            ];
+            try {
+                // Tangani baik array maupun objek untuk kompatibilitas
+                $rgb = [
+                    'red' => is_array($testData) ? $testData['red'] : $testData->red,
+                    'green' => is_array($testData) ? $testData['green'] : $testData->green,
+                    'blue' => is_array($testData) ? $testData['blue'] : $testData->blue
+                ];
 
-            $actualMaturity = is_array($testData) ? $testData['actual_class'] : $testData->actual_class;
+                // Validasi nilai RGB
+                if (!is_numeric($rgb['red']) || !is_numeric($rgb['green']) || !is_numeric($rgb['blue'])) {
+                    Log::warning('Invalid RGB values detected', ['rgb' => $rgb]);
+                    continue; // Skip data yang tidak valid
+                }
+
+                $actualMaturity = is_array($testData) ? $testData['actual_class'] : $testData->actual_class;
+                
+                if (empty($actualMaturity)) {
+                    Log::warning('Empty actual maturity detected');
+                    continue; // Skip data tanpa label
+                }
 
             switch ($algorithm) {
                 case 'decision_tree':
@@ -192,6 +241,16 @@ class ModelEvaluationService
                 'actual' => $actualMaturity,
                 'rgb' => $rgb
             ];
+            
+            } catch (\Exception $e) {
+                Log::error('Error in makePredictions for single prediction', [
+                    'algorithm' => $algorithm,
+                    'error' => $e->getMessage(),
+                    'test_data' => $testData
+                ]);
+                // Skip data yang error, lanjutkan ke data berikutnya
+                continue;
+            }
         }
 
         return $predictions;

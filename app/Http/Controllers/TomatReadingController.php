@@ -132,16 +132,23 @@ class TomatReadingController extends Controller
 
     public function store(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'device_id' => 'required|string',
-            'red_value' => 'required|integer|min:0|max:255',
-            'green_value' => 'required|integer|min:0|max:255',
-            'blue_value' => 'required|integer|min:0|max:255',
-            'clear_value' => 'required|integer|min:0',
-            'temperature' => 'required|numeric',
-            'humidity' => 'required|numeric',
-            'raw_sensor_data' => 'nullable|array'
-        ]);
+        try {
+            // Log incoming request untuk debugging
+            Log::info('ESP32 data received', [
+                'device_id' => $request->device_id,
+                'data' => $request->all()
+            ]);
+            
+            $validator = Validator::make($request->all(), [
+                'device_id' => 'required|string',
+                'red_value' => 'required|integer|min:0|max:255',
+                'green_value' => 'required|integer|min:0|max:255',
+                'blue_value' => 'required|integer|min:0|max:255',
+                'clear_value' => 'required|integer|min:0',
+                'temperature' => 'required|numeric',
+                'humidity' => 'required|numeric',
+                'raw_sensor_data' => 'nullable|array'
+            ]);
 
         // Auto-create device if not exists
         $device = \App\Models\Device::firstOrCreate(
@@ -153,6 +160,12 @@ class TomatReadingController extends Controller
         );
 
         if ($validator->fails()) {
+            Log::warning('ESP32 data validation failed', [
+                'device_id' => $request->device_id,
+                'errors' => $validator->errors(),
+                'request_data' => $request->all()
+            ]);
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Validation error',
@@ -180,21 +193,41 @@ class TomatReadingController extends Controller
         ]);
 
         // Create the reading
-        $reading = TomatReading::create([
-            'device_id' => $request->device_id,
-            'red_value' => $request->red_value,
-            'green_value' => $request->green_value,
-            'blue_value' => $request->blue_value,
-            'clear_value' => $request->clear_value,
-            'temperature' => $request->temperature,
-            'humidity' => $request->humidity,
-            'maturity_level' => $maturityLevel,
-            'confidence_score' => $confidenceScore,
-            'status' => $status,
-            'recommendations' => $recommendations,
-            'ml_analysis' => $mlAnalysis,
-            'raw_sensor_data' => $request->raw_sensor_data ?? []
-        ]);
+        try {
+            $reading = TomatReading::create([
+                'device_id' => $request->device_id,
+                'red_value' => $request->red_value,
+                'green_value' => $request->green_value,
+                'blue_value' => $request->blue_value,
+                'clear_value' => $request->clear_value,
+                'temperature' => $request->temperature,
+                'humidity' => $request->humidity,
+                'maturity_level' => $maturityLevel,
+                'confidence_score' => $confidenceScore,
+                'status' => $status,
+                'recommendations' => $recommendations,
+                'ml_analysis' => $mlAnalysis,
+                'raw_sensor_data' => $request->raw_sensor_data ?? []
+            ]);
+            
+            Log::info('TomatReading created successfully', [
+                'reading_id' => $reading->id,
+                'device_id' => $request->device_id
+            ]);
+            
+        } catch (\Exception $e) {
+            Log::error('Failed to create TomatReading', [
+                'error' => $e->getMessage(),
+                'device_id' => $request->device_id,
+                'data' => $request->all()
+            ]);
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to save sensor data',
+                'error' => 'Database error occurred'
+            ], 500);
+        }
 
         // Trigger real-time accuracy evaluation setelah data baru ditambahkan
         try {
@@ -206,10 +239,20 @@ class TomatReadingController extends Controller
         } catch (\Exception $e) {
             Log::error('Failed to evaluate model accuracy', [
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
                 'reading_id' => $reading->id
             ]);
+            // Jangan throw exception, biarkan response tetap sukses
+            // karena data sudah berhasil disimpan
         }
 
+        Log::info('ESP32 data processed successfully', [
+            'reading_id' => $reading->id,
+            'device_id' => $request->device_id,
+            'maturity_level' => $maturityLevel,
+            'confidence_score' => $confidenceScore
+        ]);
+        
         return response()->json([
             'success' => true,
             'message' => 'Reading created successfully',
@@ -217,6 +260,20 @@ class TomatReadingController extends Controller
             'recommendations' => $recommendations,
             'analysis' => $mlAnalysis
         ], 201);
+        
+        } catch (\Exception $e) {
+            Log::error('Critical error in store method', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'request_data' => $request->all()
+            ]);
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Internal server error occurred',
+                'error' => 'Data processing failed'
+            ], 500);
+        }
     }
 
     /**

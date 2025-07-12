@@ -60,7 +60,7 @@ const char *password = "12345678";
 const char *deviceId = "ESP32_SENSOR_001";
 
 // URL server API untuk mengirim data - GANTI DENGAN URL SERVER ANDA
-const char *serverUrl = "https:://tomato-ai.lik.my.id/api/tomat-readings";
+const char *serverUrl = "https://tomato-ai.lik.my.id/api/tomat-readings";
 
 // Variabel untuk tracking waktu
 unsigned long lastSensorRead = 0;
@@ -85,35 +85,67 @@ SensorData currentData;
 /**
  * Fungsi untuk mengirim data ke server Laravel
  */
-void sendDataToServer(SensorData data)
+bool sendDataToServer(SensorData data)
 {
-    if (WiFi.status() != WL_CONNECTED)
-    {
-        Serial.println("WiFi tidak terhubung, mencoba reconnect...");
+    bool success = false;
+
+    // Cek koneksi WiFi terlebih dahulu
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("✗ WiFi tidak terhubung!");
+        Serial.println("Status WiFi: " + String(WiFi.status()));
+
+        // Coba reconnect
+        Serial.println("Mencoba reconnect WiFi...");
         WiFi.reconnect();
-        return;
+
+        // Tunggu maksimal 10 detik untuk reconnect
+        int attempts = 0;
+        while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+            delay(500);
+            Serial.print(".");
+            attempts++;
+        }
+        Serial.println();
+
+        if (WiFi.status() != WL_CONNECTED) {
+            Serial.println("✗ Gagal reconnect WiFi");
+            return false;
+        }
+
+        Serial.println("✓ WiFi berhasil reconnect");
     }
+
+    Serial.println("✓ WiFi terhubung: " + WiFi.localIP().toString());
+    Serial.println("✓ Signal strength: " + String(WiFi.RSSI()) + " dBm");
+
+    // Test ping ke server
+    Serial.println("Testing koneksi ke server...");
+    Serial.println("Server URL: " + String(serverUrl));
 
     HTTPClient http;
     http.begin(serverUrl);
     http.addHeader("Content-Type", "application/json");
     http.addHeader("Accept", "application/json");
+    http.addHeader("User-Agent", "ESP32-TomatoSensor/1.0");
+    http.setTimeout(15000); // Timeout 15 detik
 
-    // Membuat JSON payload
+    // Membuat JSON payload menggunakan ArduinoJson
     StaticJsonDocument<300> jsonDoc;
     jsonDoc["device_id"] = deviceId;
     jsonDoc["red_value"] = data.red;
     jsonDoc["green_value"] = data.green;
     jsonDoc["blue_value"] = data.blue;
     jsonDoc["clear_value"] = data.clear;
-    jsonDoc["temperature"] = data.temperature;
-    jsonDoc["humidity"] = data.humidity;
+    jsonDoc["temperature"] = round(data.temperature * 10) / 10.0; // Round to 1 decimal
+    jsonDoc["humidity"] = round(data.humidity * 10) / 10.0; // Round to 1 decimal
 
     String jsonString;
     serializeJson(jsonDoc, jsonString);
 
-    Serial.println("Mengirim data ke server:");
+    Serial.println("JSON Payload:");
     Serial.println(jsonString);
+    Serial.println("Payload Length: " + String(jsonString.length()));
+    Serial.println("Mengirim data ke server:");
 
     int httpResponseCode = http.POST(jsonString);
 
@@ -127,20 +159,65 @@ void sendDataToServer(SensorData data)
         {
             Serial.println("✓ Data berhasil dikirim ke server");
             displayStatus("Data Sent OK", true);
+            success = true;
         }
         else
         {
             Serial.println("⚠ Server merespons dengan error");
             displayStatus("Server Error", false);
+            success = false;
         }
     }
     else
     {
         Serial.printf("✗ Error mengirim data: %d\n", httpResponseCode);
-        displayStatus("Send Failed", false);
-    }
 
+        // Detail error berdasarkan kode
+        switch(httpResponseCode) {
+            case -1:
+                Serial.println("Error: Connection failed");
+                break;
+            case -2:
+                Serial.println("Error: Send header failed");
+                break;
+            case -3:
+                Serial.println("Error: Send payload failed");
+                break;
+            case -4:
+                Serial.println("Error: Not connected");
+                break;
+            case -5:
+                Serial.println("Error: Connection lost");
+                break;
+            case -6:
+                Serial.println("Error: No stream");
+                break;
+            case -7:
+                Serial.println("Error: No HTTP server");
+                break;
+            case -8:
+                Serial.println("Error: Too less RAM");
+                break;
+            case -9:
+                Serial.println("Error: Encoding");
+                break;
+            case -10:
+                Serial.println("Error: Stream write");
+                break;
+            case -11:
+                Serial.println("Error: Read timeout");
+                break;
+            default:
+                Serial.println("Error: Unknown error");
+                break;
+        }
+        displayStatus("Send Failed", false);
+        success = false;
+    }
+// Menutup koneksi
     http.end();
+
+    return success;
 }
 
 /**
@@ -164,15 +241,35 @@ SensorData readSensors()
     }
 
     // Membaca data sensor warna TCS34725
-    colorSensor.getRawData(&data.red, &data.green, &data.blue, &data.clear);
+    uint16_t rawRed, rawGreen, rawBlue, rawClear;
+    colorSensor.getRawData(&rawRed, &rawGreen, &rawBlue, &rawClear);
 
     // Validasi data sensor warna
-    if (data.clear == 0)
+    if (rawClear == 0)
     {
         Serial.println("⚠ Gagal membaca sensor warna TCS34725");
         data.isValid = false;
         return data;
     }
+
+    // Debug: Tampilkan nilai raw
+    Serial.println("Raw RGB Values:");
+    Serial.println("R=" + String(rawRed) + " G=" + String(rawGreen) + " B=" + String(rawBlue) + " Clear=" + String(rawClear));
+
+    // Normalisasi nilai RGB ke rentang 0-255
+    data.red = map(rawRed, 0, rawClear, 0, 255);
+    data.green = map(rawGreen, 0, rawClear, 0, 255);
+    data.blue = map(rawBlue, 0, rawClear, 0, 255);
+    data.clear = rawClear;
+
+    // Pastikan nilai tidak melebihi 255
+    data.red = constrain(data.red, 0, 255);
+    data.green = constrain(data.green, 0, 255);
+    data.blue = constrain(data.blue, 0, 255);
+
+    // Debug: Tampilkan nilai setelah normalisasi
+    Serial.println("Normalized RGB Values:");
+    Serial.println("R=" + String(data.red) + " G=" + String(data.green) + " B=" + String(data.blue));
 
     return data;
 }
@@ -378,7 +475,14 @@ void loop()
     // Kirim data ke server setiap SEND_INTERVAL
     if (currentTime - lastDataSend >= SEND_INTERVAL && currentData.isValid)
     {
-        sendDataToServer(currentData);
+        bool sendSuccess = sendDataToServer(currentData);
+
+        if (sendSuccess) {
+            Serial.println("✓ Data berhasil dikirim ke server");
+        } else {
+            Serial.println("✗ Gagal mengirim data ke server");
+        }
+
         lastDataSend = currentTime;
     }
 
