@@ -14,20 +14,13 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // Buat device untuk testing (gunakan updateOrCreate untuk menghindari duplikasi)
-        Device::updateOrCreate(
-            ['device_id' => 'TEST_DEVICE'],
-            [
-                'name' => 'Test Device',
-                'location' => 'Test Location'
-            ]
-        );
-        
         // Panggil semua seeder
         $this->call([
+            DeviceSeeder::class,
             TrainingDataSeeder::class,
             DecisionTreeRuleSeeder::class,
             RecommendationSeeder::class,
+            ClassificationSeeder::class,
         ]);
     }
 }

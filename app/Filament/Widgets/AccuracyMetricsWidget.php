@@ -43,7 +43,7 @@ class AccuracyMetricsWidget extends Widget
                 'accuracy' => $accuracy ? $accuracy->accuracy : $evaluationService->getCurrentAccuracy($algorithm),
                 'detailed_metrics' => $detailedMetrics,
                 'confusion_matrix' => $confusionMatrix,
-                'last_updated' => $accuracy ? $accuracy->calculated_at->diffForHumans() : 'Belum dievaluasi',
+                'last_updated' => ($accuracy && $accuracy instanceof \App\Models\ModelAccuracy && isset($accuracy->calculated_at) && $accuracy->calculated_at instanceof \Carbon\Carbon) ? $accuracy->calculated_at->diffForHumans() : 'Belum dievaluasi',
                 'data_count' => $accuracy ? $accuracy->data_count : $trainingDataCount,
                 'trend' => $this->getAccuracyTrend($algorithm, $accuracy)
             ];
@@ -77,7 +77,12 @@ class AccuracyMetricsWidget extends Widget
      */
     private function getAccuracyTrend($algorithm, $currentAccuracy)
     {
-        if (!$currentAccuracy) {
+        if (!$currentAccuracy || !($currentAccuracy instanceof \App\Models\ModelAccuracy)) {
+            return ['direction' => 'new', 'change' => 0];
+        }
+        
+        // Pastikan calculated_at tersedia
+        if (!isset($currentAccuracy->calculated_at)) {
             return ['direction' => 'new', 'change' => 0];
         }
         

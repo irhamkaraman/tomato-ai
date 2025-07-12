@@ -8,9 +8,12 @@ use App\Imports\TrainingDataImport;
 use Filament\Actions;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Forms\Components\FileUpload;
+use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Actions\Action;
 use Filament\Notifications\Notification;
 use Maatwebsite\Excel\Facades\Excel;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class ListTrainingData extends ListRecords
 {
@@ -20,7 +23,7 @@ class ListTrainingData extends ListRecords
     {
         return [
             Actions\CreateAction::make(),
-            
+
             Actions\Action::make('downloadTemplate')
                 ->label('Download Template Excel')
                 ->icon('heroicon-o-document-arrow-down')
@@ -28,23 +31,70 @@ class ListTrainingData extends ListRecords
                 ->action(function () {
                     return $this->downloadTemplate();
                 }),
-            
-            Actions\Action::make('importExcel')
-                ->label('Import Excel')
+
+            Actions\Action::make('uploadExcel')
+                ->label('Upload File Excel')
                 ->icon('heroicon-o-arrow-up-tray')
-                ->color('success')
+                ->color('info')
                 ->form([
                     FileUpload::make('file')
                         ->label('File Excel')
                         ->acceptedFileTypes(['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-excel'])
                         ->required()
                         ->helperText('Upload file Excel dengan format yang sesuai template. Maksimal 10MB.')
-                        ->maxSize(10240), // 10MB
+                        ->maxSize(10240)
+                        ->disk('public')
+                        ->directory('excel-imports')
+                        ->preserveFilenames()
+                        ->visibility('private'),
+                ])
+                ->action(function (array $data) {
+                    $this->uploadExcel($data['file']);
+                }),
+
+            Actions\Action::make('importExcel')
+                ->label('Import Excel')
+                ->icon('heroicon-o-document-arrow-up')
+                ->color('success')
+                ->form([
+                    Select::make('file')
+                        ->label('Pilih File Excel')
+                        ->options($this->getUploadedFiles())
+                        ->required()
+                        ->helperText('Pilih file Excel yang sudah diupload untuk diimport ke database.')
+                        ->suffixAction(
+                              Action::make('refresh')
+                                  ->icon('heroicon-m-arrow-path')
+                                  ->action(function () {
+                                      $this->dispatch('refreshForm');
+                                  })
+                          ),
                 ])
                 ->action(function (array $data) {
                     $this->importExcel($data['file']);
                 }),
-            
+
+            Actions\Action::make('manageFiles')
+                ->label('Kelola File Excel')
+                ->icon('heroicon-o-folder')
+                ->color('gray')
+                ->form([
+                    Select::make('file_to_delete')
+                        ->label('File yang akan dihapus')
+                        ->options($this->getUploadedFiles())
+                        ->helperText('Pilih file Excel yang ingin dihapus dari storage.')
+                        ->suffixAction(
+                              Action::make('refresh')
+                                  ->icon('heroicon-m-arrow-path')
+                                  ->action(function () {
+                                      $this->dispatch('refreshForm');
+                                  })
+                          ),
+                ])
+                ->action(function (array $data) {
+                    $this->deleteExcelFile($data['file_to_delete']);
+                }),
+
             Actions\Action::make('exportExcel')
                 ->label('Export Excel')
                 ->icon('heroicon-o-arrow-down-tray')
@@ -54,7 +104,7 @@ class ListTrainingData extends ListRecords
                 }),
         ];
     }
-    
+
     protected function downloadTemplate()
     {
         // Create template data
@@ -92,29 +142,29 @@ class ListTrainingData extends ListRecords
                 'status_aktif' => 'Tidak Aktif'
             ]
         ];
-        
+
         return Excel::download(new class($templateData) implements \Maatwebsite\Excel\Concerns\FromArray, \Maatwebsite\Excel\Concerns\WithHeadings, \Maatwebsite\Excel\Concerns\WithStyles, \Maatwebsite\Excel\Concerns\ShouldAutoSize {
             private $data;
-            
+
             public function __construct($data) {
                 $this->data = $data;
             }
-            
+
             public function array(): array {
                 return $this->data;
             }
-            
+
             public function headings(): array {
                 return [
                     'nilai_merah_r',
-                    'nilai_hijau_g', 
+                    'nilai_hijau_g',
                     'nilai_biru_b',
                     'kelas_kematangan',
                     'deskripsi',
                     'status_aktif'
                 ];
             }
-            
+
             public function styles(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet) {
                 return [
                     1 => ['font' => ['bold' => true]],
@@ -132,21 +182,115 @@ class ListTrainingData extends ListRecords
             }
         }, 'template-training-data.xlsx');
     }
-    
+
+    protected function uploadExcel($file)
+    {
+        try {
+            // File sudah disimpan otomatis oleh Filament ke storage/app/public/excel-imports/
+            $filename = basename($file);
+
+            Notification::make()
+                ->title('Upload Berhasil')
+                ->body("File '{$filename}' berhasil diupload. Silakan gunakan tombol 'Import Excel' untuk mengimport data.")
+                ->success()
+                ->send();
+
+        } catch (\Exception $e) {
+            Notification::make()
+                ->title('Upload Gagal')
+                ->body('Terjadi kesalahan: ' . $e->getMessage())
+                ->danger()
+                ->send();
+        }
+    }
+
+    protected function getUploadedFiles()
+    {
+        $files = Storage::disk('public')->files('excel-imports');
+        $options = [];
+
+        foreach ($files as $file) {
+            $filename = basename($file);
+            $lastModified = Storage::disk('public')->lastModified($file);
+            $size = Storage::disk('public')->size($file);
+
+            $options[$file] = $filename . ' (' . date('d/m/Y H:i', $lastModified) . ', ' . $this->formatBytes($size) . ')';
+        }
+
+        return $options;
+    }
+
+    protected function formatBytes($size, $precision = 2)
+    {
+        $units = ['B', 'KB', 'MB', 'GB'];
+
+        for ($i = 0; $size > 1024 && $i < count($units) - 1; $i++) {
+            $size /= 1024;
+        }
+
+        return round($size, $precision) . ' ' . $units[$i];
+    }
+
+    protected function deleteExcelFile($file)
+    {
+        try {
+            if (!$file) {
+                Notification::make()
+                    ->title('Pilih File')
+                    ->body('Silakan pilih file yang ingin dihapus.')
+                    ->warning()
+                    ->send();
+                return;
+            }
+
+            if (Storage::disk('public')->exists($file)) {
+                Storage::disk('public')->delete($file);
+
+                $filename = basename($file);
+
+                Notification::make()
+                    ->title('File Dihapus')
+                    ->body("File '{$filename}' berhasil dihapus dari storage.")
+                    ->success()
+                    ->send();
+            } else {
+                Notification::make()
+                    ->title('File Tidak Ditemukan')
+                    ->body('File yang dipilih tidak ditemukan di storage.')
+                    ->warning()
+                    ->send();
+            }
+
+        } catch (\Exception $e) {
+            Notification::make()
+                ->title('Gagal Menghapus File')
+                ->body('Terjadi kesalahan: ' . $e->getMessage())
+                ->danger()
+                ->send();
+        }
+    }
+
     protected function importExcel($file)
     {
         try {
+            // Pastikan file ada di storage
+            if (!Storage::disk('public')->exists($file)) {
+                throw new \Exception('File tidak ditemukan. Silakan upload ulang file Excel.');
+            }
+
+            $fullPath = Storage::disk('public')->path($file);
+
             $import = new TrainingDataImport();
-            Excel::import($import, $file);
-            
+            Excel::import($import, $fullPath);
+
             $errors = $import->failures();
-            
+
             if ($errors->count() > 0) {
                 $errorMessages = [];
                 foreach ($errors as $error) {
                     $errorMessages[] = "Baris {$error->row()}: " . implode(', ', $error->errors());
                 }
-                
+
                 Notification::make()
                     ->title('Import Berhasil dengan Peringatan')
                     ->body('Beberapa data tidak dapat diimport: ' . implode('; ', array_slice($errorMessages, 0, 3)) . (count($errorMessages) > 3 ? '...' : ''))
@@ -159,7 +303,7 @@ class ListTrainingData extends ListRecords
                     ->success()
                     ->send();
             }
-            
+
         } catch (\Exception $e) {
             Notification::make()
                 ->title('Import Gagal')
@@ -168,7 +312,7 @@ class ListTrainingData extends ListRecords
                 ->send();
         }
     }
-    
+
     protected function exportExcel()
     {
         try {

@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\TomatReading;
 use App\Models\TrainingData;
 use App\Models\ModelAccuracy;
+use App\Models\Classification;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -48,7 +49,34 @@ class ModelEvaluationService
     private function evaluateAlgorithm($algorithm)
     {
         $trainingData = TrainingData::active()->get();
-        $dataCount = $trainingData->count();
+
+        // Tambahkan data klasifikasi yang sudah terverifikasi sebagai data training tambahan
+        $verifiedClassifications = Classification::where('is_verified', true)->get();
+        $classificationTrainingData = $verifiedClassifications->map(function($data) {
+            // Buat array biasa untuk menghindari masalah dengan getKey()
+            return [
+                'red' => $data->red_value,
+                'green' => $data->green_value,
+                'blue' => $data->blue_value,
+                'actual_class' => $data->actual_status ?? $data->predicted_status,
+                'is_active' => true
+            ];
+        });
+
+        // Konversi training data Eloquent ke array untuk konsistensi
+        $trainingDataArray = $trainingData->map(function($data) {
+            return [
+                'red' => $data->red_value,
+                'green' => $data->green_value,
+                'blue' => $data->blue_value,
+                'actual_class' => $data->maturity_class,
+                'is_active' => $data->is_active
+            ];
+        });
+
+        // Gabungkan data training dan data klasifikasi terverifikasi
+        $combinedTrainingData = $trainingDataArray->concat($classificationTrainingData);
+        $dataCount = $combinedTrainingData->count();
 
         if ($dataCount < 10) {
             // Jika data training kurang, gunakan akurasi default
@@ -63,7 +91,7 @@ class ModelEvaluationService
         }
 
         // Implementasi K-Fold Cross Validation (K=5)
-        $folds = $this->createKFolds($trainingData, 5);
+        $folds = $this->createKFolds($combinedTrainingData, 5);
         $accuracies = [];
         $allPredictions = [];
 
@@ -82,12 +110,12 @@ class ModelEvaluationService
 
         // Hitung confusion matrix
         $confusionMatrix = $this->calculateConfusionMatrix($allPredictions);
-        
+
         // Hitung detailed metrics
         $detailedMetrics = $this->calculateDetailedMetrics($allPredictions);
 
         // Simpan ke database untuk tracking
-        $this->saveAccuracyHistory($algorithm, $avgAccuracy);
+        $this->saveAccuracyHistory($algorithm, $avgAccuracy, $dataCount);
 
         return [
             'accuracy' => round($avgAccuracy, 2),
@@ -133,11 +161,14 @@ class ModelEvaluationService
         $predictions = [];
 
         foreach ($testSet as $testData) {
+            // Tangani baik array maupun objek untuk kompatibilitas
             $rgb = [
-                'red' => $testData->red_value,
-                'green' => $testData->green_value,
-                'blue' => $testData->blue_value
+                'red' => is_array($testData) ? $testData['red'] : $testData->red,
+                'green' => is_array($testData) ? $testData['green'] : $testData->green,
+                'blue' => is_array($testData) ? $testData['blue'] : $testData->blue
             ];
+
+            $actualMaturity = is_array($testData) ? $testData['actual_class'] : $testData->actual_class;
 
             switch ($algorithm) {
                 case 'decision_tree':
@@ -158,7 +189,7 @@ class ModelEvaluationService
 
             $predictions[] = [
                 'predicted' => $prediction,
-                'actual' => $testData->maturity_class,
+                'actual' => $actualMaturity,
                 'rgb' => $rgb
             ];
         }
@@ -277,19 +308,40 @@ class ModelEvaluationService
      */
     private function predictKNN($rgb, $trainSet, $k = 3)
     {
+        // Validasi input
+        if (empty($trainSet) || !is_array($rgb) || !isset($rgb['red'], $rgb['green'], $rgb['blue'])) {
+            return 'mentah'; // Default fallback
+        }
+
         $distances = [];
 
         foreach ($trainSet as $train) {
+            // Tangani baik array maupun objek untuk kompatibilitas
+            $trainRed = is_array($train) ? ($train['red'] ?? $train['red_value'] ?? 0) : ($train->red ?? $train->red_value ?? 0);
+            $trainGreen = is_array($train) ? ($train['green'] ?? $train['green_value'] ?? 0) : ($train->green ?? $train->green_value ?? 0);
+            $trainBlue = is_array($train) ? ($train['blue'] ?? $train['blue_value'] ?? 0) : ($train->blue ?? $train->blue_value ?? 0);
+            $trainClass = is_array($train) ? ($train['actual_class'] ?? $train['maturity_level'] ?? $train['maturity_class'] ?? 'mentah') : ($train->actual_class ?? $train->maturity_level ?? $train->maturity_class ?? 'mentah');
+
+            // Skip jika data tidak valid
+            if (!is_numeric($trainRed) || !is_numeric($trainGreen) || !is_numeric($trainBlue) || empty($trainClass)) {
+                continue;
+            }
+
             $distance = sqrt(
-                pow($train->red_value - $rgb['red'], 2) +
-                pow($train->green_value - $rgb['green'], 2) +
-                pow($train->blue_value - $rgb['blue'], 2)
+                pow($trainRed - $rgb['red'], 2) +
+                pow($trainGreen - $rgb['green'], 2) +
+                pow($trainBlue - $rgb['blue'], 2)
             );
 
             $distances[] = [
                 'distance' => $distance,
-                'class' => $train->maturity_class
+                'class' => $trainClass
             ];
+        }
+
+        // Jika tidak ada data valid, return default
+        if (empty($distances)) {
+            return 'mentah';
         }
 
         // Urutkan berdasarkan jarak
@@ -298,11 +350,13 @@ class ModelEvaluationService
         });
 
         // Ambil K tetangga terdekat
+        $k = min($k, count($distances)); // Pastikan k tidak lebih besar dari jumlah data
         $nearest = array_slice($distances, 0, $k);
         $votes = array_count_values(array_column($nearest, 'class'));
         arsort($votes);
 
-        return key($votes);
+        $result = key($votes);
+        return $result ?: 'mentah'; // Fallback jika hasil kosong
     }
 
     /**
@@ -310,6 +364,11 @@ class ModelEvaluationService
      */
     private function predictRandomForest($rgb, $trainSet)
     {
+        // Validasi input
+        if (!is_array($rgb) || !isset($rgb['red'], $rgb['green'], $rgb['blue'])) {
+            return 'mentah'; // Default fallback
+        }
+
         // Simulasi 3 decision trees dengan variasi
         $predictions = [];
 
@@ -337,11 +396,17 @@ class ModelEvaluationService
             $predictions[] = 'setengah_matang';
         }
 
+        // Validasi bahwa ada prediksi
+        if (empty($predictions)) {
+            return 'mentah';
+        }
+
         // Majority voting
         $votes = array_count_values($predictions);
         arsort($votes);
 
-        return key($votes);
+        $result = key($votes);
+        return $result ?: 'mentah'; // Fallback jika hasil kosong
     }
 
     /**
@@ -349,28 +414,77 @@ class ModelEvaluationService
      */
     private function predictEnsemble($rgb, $trainSet)
     {
-        $dtPrediction = $this->predictDecisionTree($rgb);
-        $knnPrediction = $this->predictKNN($rgb, $trainSet);
-        $rfPrediction = $this->predictRandomForest($rgb, $trainSet);
+        // Validasi input
+        if (!is_array($rgb) || !isset($rgb['red'], $rgb['green'], $rgb['blue'])) {
+            return 'mentah'; // Default fallback
+        }
 
-        $votes = [$dtPrediction, $knnPrediction, $rfPrediction];
-        $voteCounts = array_count_values($votes);
+        $predictions = [];
+
+        // Dapatkan prediksi dari setiap algoritma dengan error handling
+        try {
+            $dtPrediction = $this->predictDecisionTree($rgb);
+            if (!empty($dtPrediction)) {
+                $predictions[] = $dtPrediction;
+            }
+        } catch (\Exception $e) {
+            Log::warning('Decision Tree prediction failed: ' . $e->getMessage());
+        }
+
+        try {
+            $knnPrediction = $this->predictKNN($rgb, $trainSet);
+            if (!empty($knnPrediction)) {
+                $predictions[] = $knnPrediction;
+            }
+        } catch (\Exception $e) {
+            Log::warning('KNN prediction failed: ' . $e->getMessage());
+        }
+
+        try {
+            $rfPrediction = $this->predictRandomForest($rgb, $trainSet);
+            if (!empty($rfPrediction)) {
+                $predictions[] = $rfPrediction;
+            }
+        } catch (\Exception $e) {
+            Log::warning('Random Forest prediction failed: ' . $e->getMessage());
+        }
+
+        // Jika tidak ada prediksi yang berhasil, gunakan fallback
+        if (empty($predictions)) {
+            return 'mentah';
+        }
+
+        // Jika hanya ada satu prediksi, gunakan itu
+        if (count($predictions) === 1) {
+            return $predictions[0];
+        }
+
+        // Majority voting
+        $voteCounts = array_count_values($predictions);
         arsort($voteCounts);
 
-        return key($voteCounts);
+        $result = key($voteCounts);
+        return $result ?: 'mentah'; // Fallback jika hasil kosong
     }
 
     /**
      * Simpan riwayat akurasi
      */
-    private function saveAccuracyHistory($algorithm, $accuracy)
+    private function saveAccuracyHistory($algorithm, $accuracy, $dataCount = null)
     {
+        // Hitung total data jika tidak disediakan
+        if ($dataCount === null) {
+            $trainingDataCount = TrainingData::active()->count();
+            $verifiedClassificationCount = Classification::where('is_verified', true)->count();
+            $dataCount = $trainingDataCount + $verifiedClassificationCount;
+        }
+
         DB::table('model_accuracies')->updateOrInsert(
             ['algorithm' => $algorithm],
             [
                 'accuracy' => $accuracy,
                 'calculated_at' => now(),
-                'data_count' => TrainingData::active()->count(),
+                'data_count' => $dataCount,
                 'updated_at' => now()
             ]
         );
@@ -394,48 +508,7 @@ class ModelEvaluationService
     /**
      * Dapatkan akurasi terkini dari cache atau hitung ulang
      */
-    public function getCurrentAccuracy($algorithm)
-    {
-        return Cache::remember("accuracy_{$algorithm}", now()->addMinutes(30), function() use ($algorithm) {
-            $result = $this->evaluateAlgorithm($algorithm);
-            return $result['accuracy'];
-        });
-    }
 
-    /**
-     * Hitung confusion matrix untuk algoritma
-     */
-    public function getConfusionMatrix($algorithm)
-    {
-        $trainingData = TrainingData::active()->get();
-        $classes = ['mentah', 'setengah_matang', 'matang', 'busuk'];
-        $matrix = [];
-
-        // Inisialisasi matrix
-        foreach ($classes as $actual) {
-            foreach ($classes as $predicted) {
-                $matrix[$actual][$predicted] = 0;
-            }
-        }
-
-        // Hitung prediksi vs aktual
-        foreach ($trainingData as $data) {
-            $rgb = [
-                'red' => $data->red_value,
-                'green' => $data->green_value,
-                'blue' => $data->blue_value
-            ];
-
-            $predicted = $this->makePredictions($algorithm, collect([$data]), $trainingData)[0]['predicted'];
-            $actual = $data->maturity_class;
-
-            if (isset($matrix[$actual][$predicted])) {
-                $matrix[$actual][$predicted]++;
-            }
-        }
-
-        return $matrix;
-    }
 
     /**
      * Hitung precision, recall, dan F1-score
@@ -472,9 +545,11 @@ class ModelEvaluationService
     {
         $results = [];
         $trainingDataCount = TrainingData::active()->count();
+        $verifiedClassificationCount = Classification::where('is_verified', true)->count();
+        $totalDataCount = $trainingDataCount + $verifiedClassificationCount;
 
-        if ($trainingDataCount < 10) {
-            // Jika data training kurang dari 10, gunakan akurasi default
+        if ($totalDataCount < 10) {
+            // Jika total data (training + klasifikasi terverifikasi) kurang dari 10, gunakan akurasi default
             $defaultAccuracies = [
                 'decision_tree' => 85.0,
                 'knn' => 82.0,
@@ -487,15 +562,15 @@ class ModelEvaluationService
                     ['algorithm' => $algorithm],
                     [
                         'accuracy' => $accuracy,
-                        'data_count' => $trainingDataCount,
+                        'data_count' => $totalDataCount,
                         'calculated_at' => now(),
-                        'notes' => 'Default accuracy - insufficient training data'
+                        'notes' => "Default accuracy - insufficient data (Training: {$trainingDataCount}, Verified Classifications: {$verifiedClassificationCount})"
                     ]
                 );
 
                 $results[$algorithm] = [
                     'accuracy' => $accuracy,
-                    'data_count' => $trainingDataCount,
+                    'data_count' => $totalDataCount,
                     'status' => 'default'
                 ];
             }
@@ -511,11 +586,11 @@ class ModelEvaluationService
                     ['algorithm' => $algorithm],
                     [
                         'accuracy' => $evaluation['accuracy'],
-                        'data_count' => $trainingDataCount,
+                        'data_count' => $totalDataCount,
                         'calculated_at' => now(),
                         'confusion_matrix' => json_encode($evaluation['confusion_matrix'] ?? []),
                         'detailed_metrics' => json_encode($evaluation['detailed_metrics'] ?? []),
-                        'notes' => 'Real-time evaluation'
+                        'notes' => "Real-time evaluation (Training: {$trainingDataCount}, Verified Classifications: {$verifiedClassificationCount})"
                     ]
                 );
 
@@ -600,5 +675,183 @@ class ModelEvaluationService
         foreach ($this->algorithms as $algorithm) {
             Cache::forget("accuracy_{$algorithm}");
         }
+    }
+
+    /**
+     * Dapatkan confusion matrix untuk algoritma tertentu
+     */
+    public function getConfusionMatrix($algorithm)
+    {
+        // Selalu generate confusion matrix berdasarkan data terbaru, bukan cache
+        $trainingData = TrainingData::active()->get();
+        $classifications = Classification::where('is_verified', true)->get();
+
+        if ($trainingData->isEmpty() && $classifications->isEmpty()) {
+            return [];
+        }
+
+        // Combine data untuk evaluasi
+        $allData = collect();
+
+        // Add training data
+        foreach ($trainingData as $data) {
+            $allData->push([
+                'red_value' => $data->red_value,
+                'green_value' => $data->green_value,
+                'blue_value' => $data->blue_value,
+                'actual_class' => $data->maturity_class,
+            ]);
+        }
+
+        // Add classification data yang sudah terverifikasi
+        foreach ($classifications as $data) {
+            $allData->push([
+                'red_value' => $data->red_value,
+                'green_value' => $data->green_value,
+                'blue_value' => $data->blue_value,
+                'actual_class' => $data->actual_status ?? $data->predicted_status, // Gunakan actual_status jika ada
+            ]);
+        }
+
+        if ($allData->isEmpty()) {
+            return [];
+        }
+
+        // Generate confusion matrix
+        $matrix = [];
+        $classes = ['mentah', 'setengah_matang', 'matang', 'busuk'];
+
+        // Initialize matrix
+        foreach ($classes as $actual) {
+            foreach ($classes as $predicted) {
+                $matrix[$actual][$predicted] = 0;
+            }
+        }
+
+        // Calculate predictions and build matrix berdasarkan semua data
+        foreach ($allData as $data) {
+            $rgb = [
+                'red' => $data['red_value'],
+                'green' => $data['green_value'],
+                'blue' => $data['blue_value']
+            ];
+
+            try {
+                // Buat prediksi menggunakan algoritma yang dipilih
+                $predicted = $this->makeSinglePredictionInternal($algorithm, $rgb, $allData->toArray());
+                $actual = $data['actual_class'];
+
+                // Normalisasi nama kelas
+                $actual = $this->normalizeClassName($actual);
+                $predicted = $this->normalizeClassName($predicted);
+
+                if (in_array($actual, $classes) && in_array($predicted, $classes)) {
+                    $matrix[$actual][$predicted]++;
+                }
+            } catch (\Exception $e) {
+                // Log error tapi lanjutkan proses
+                Log::warning("Error predicting for algorithm {$algorithm}: " . $e->getMessage());
+                continue;
+            }
+        }
+
+        return $matrix;
+    }
+
+    /**
+     * Normalisasi nama kelas untuk konsistensi
+     */
+    private function normalizeClassName($className)
+    {
+        $className = strtolower(trim($className));
+
+        // Mapping untuk berbagai variasi nama kelas
+        $mapping = [
+            'ripe' => 'matang',
+            'mature' => 'matang',
+            'half_ripe' => 'setengah_matang',
+            'semi_ripe' => 'setengah_matang',
+            'half-ripe' => 'setengah_matang',
+            'semi-ripe' => 'setengah_matang',
+            'unripe' => 'mentah',
+            'green' => 'mentah',
+            'raw' => 'mentah',
+            'rotten' => 'busuk',
+            'spoiled' => 'busuk',
+            'bad' => 'busuk'
+        ];
+
+        return $mapping[$className] ?? $className;
+    }
+
+    /**
+     * Buat prediksi tunggal menggunakan algoritma tertentu (metode public)
+     */
+    public function makeSinglePrediction($inputData, $algorithm)
+    {
+        try {
+            // Validasi input
+            if (!is_array($inputData) || !isset($inputData['red_value'], $inputData['green_value'], $inputData['blue_value'])) {
+                Log::warning('Invalid input data for single prediction', ['input' => $inputData]);
+                return 'mentah';
+            }
+
+            // Format RGB data
+            $rgb = [
+                'red' => $inputData['red_value'],
+                'green' => $inputData['green_value'],
+                'blue' => $inputData['blue_value']
+            ];
+
+            // Ambil data training
+            $trainingData = TrainingData::active()->get()->toArray();
+
+            if (empty($trainingData)) {
+                Log::warning('No training data available for prediction');
+                return 'mentah';
+            }
+
+            // Panggil metode prediksi private
+            return $this->makeSinglePredictionInternal($algorithm, $rgb, $trainingData);
+
+        } catch (\Exception $e) {
+            Log::error('Single prediction failed', [
+                'algorithm' => $algorithm,
+                'input' => $inputData,
+                'error' => $e->getMessage()
+            ]);
+            return 'mentah';
+        }
+    }
+
+    /**
+     * Metode internal untuk prediksi tunggal
+     */
+    private function makeSinglePredictionInternal($algorithm, $rgb, $trainingData)
+    {
+        switch ($algorithm) {
+            case 'decision_tree':
+                return $this->predictDecisionTree($rgb);
+            case 'knn':
+                return $this->predictKNN($rgb, $trainingData);
+            case 'random_forest':
+                return $this->predictRandomForest($rgb, $trainingData);
+            case 'ensemble':
+                return $this->predictEnsemble($rgb, $trainingData);
+            default:
+                return 'mentah'; // Default prediction
+        }
+    }
+
+    /**
+     * Dapatkan akurasi saat ini untuk algoritma tertentu
+     */
+    public function getCurrentAccuracy($algorithm)
+    {
+        $accuracy = ModelAccuracy::where('algorithm', $algorithm)
+            ->latest('calculated_at')
+            ->first();
+
+        return $accuracy ? $accuracy->accuracy : 0;
     }
 }

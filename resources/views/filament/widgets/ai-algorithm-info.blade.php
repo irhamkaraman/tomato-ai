@@ -36,7 +36,7 @@
                         </div>
 
                         <!-- Description -->
-                        <p class="text-sm text-gray-600 dark:text-gray-300 mb-4 leading-relaxed">
+                        <p class="text-sm text-gray-600 dark:text-white mb-4 leading-relaxed">
                             {{ $algorithm['description'] }}
                         </p>
 
@@ -45,7 +45,7 @@
                             <h4 class="text-sm font-medium text-gray-900 dark:text-white mb-2">Fitur Utama:</h4>
                             <ul class="space-y-1">
                                 @foreach($algorithm['features'] as $feature)
-                                    <li class="flex items-start gap-2 text-sm text-gray-600 dark:text-gray-300">
+                                    <li class="flex items-start gap-2 text-sm text-gray-600 dark:text-white">
                                         <x-filament::icon icon="heroicon-m-check-circle" class="w-4 h-4 text-{{ $algorithm['color'] }}-500 mt-0.5 flex-shrink-0" />
                                         <span>{{ $feature }}</span>
                                     </li>
@@ -90,7 +90,7 @@
                             <x-filament::icon icon="heroicon-o-arrow-down-tray" class="w-8 h-8 text-blue-600 dark:text-blue-400" />
                         </div>
                         <h4 class="font-medium text-gray-900 dark:text-white">Input RGB</h4>
-                        <p class="text-sm text-gray-600 dark:text-gray-300 mt-1">Nilai warna merah, hijau, biru dari gambar tomat</p>
+                        <p class="text-sm text-gray-600 dark:text-white mt-1">Nilai warna merah, hijau, biru dari gambar tomat</p>
                     </div>
 
                     <div class="text-center">
@@ -98,7 +98,7 @@
                             <x-filament::icon icon="heroicon-o-cog-6-tooth" class="w-8 h-8 text-purple-600 dark:text-purple-400" />
                         </div>
                         <h4 class="font-medium text-gray-900 dark:text-white">Ensemble Processing</h4>
-                        <p class="text-sm text-gray-600 dark:text-gray-300 mt-1">4 algoritma AI bekerja secara paralel</p>
+                        <p class="text-sm text-gray-600 dark:text-white mt-1">4 algoritma AI bekerja secara paralel</p>
                     </div>
 
                     <div class="text-center">
@@ -106,7 +106,7 @@
                             <x-filament::icon icon="heroicon-o-check-circle" class="w-8 h-8 text-green-600 dark:text-green-400" />
                         </div>
                         <h4 class="font-medium text-gray-900 dark:text-white">Output & Rekomendasi</h4>
-                        <p class="text-sm text-gray-600 dark:text-gray-300 mt-1">Klasifikasi kematangan + panduan tindakan</p>
+                        <p class="text-sm text-gray-600 dark:text-white mt-1">Klasifikasi kematangan + panduan tindakan</p>
                     </div>
                 </div>
             </div>

@@ -53,8 +53,8 @@ Adafruit_TCS34725 colorSensor = Adafruit_TCS34725(TCS34725_INTEGRATIONTIME_614MS
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 // WiFi Credentials - GANTI DENGAN KREDENSIAL WIFI ANDA
-const char *ssid = "YOUR_SSID";
-const char *password = "YOUR_PASSWORD";
+const char *ssid = "arduino";
+const char *password = "12345678";
 
 // Device ID - GANTI DENGAN ID DEVICE YANG TERDAFTAR DI DATABASE
 const char *deviceId = "ESP32_SENSOR_001";

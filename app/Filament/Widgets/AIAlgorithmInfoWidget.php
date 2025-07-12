@@ -127,6 +127,12 @@ class AIAlgorithmInfoWidget extends Widget
         }
         
         $current = $latestAccuracies[$algorithm];
+        
+        // Pastikan current adalah model yang valid
+        if (!($current instanceof \App\Models\ModelAccuracy) || !isset($current->calculated_at)) {
+            return 'new';
+        }
+        
         $previous = ModelAccuracy::forAlgorithm($algorithm)
             ->where('calculated_at', '<', $current->calculated_at)
             ->latest()
@@ -153,7 +159,14 @@ class AIAlgorithmInfoWidget extends Widget
     private function getLastUpdated($algorithm, $latestAccuracies)
     {
         if (isset($latestAccuracies[$algorithm])) {
-            return $latestAccuracies[$algorithm]->calculated_at->diffForHumans();
+            $accuracy = $latestAccuracies[$algorithm];
+            
+            // Pastikan ini adalah model yang valid dengan calculated_at
+            if ($accuracy instanceof \App\Models\ModelAccuracy && 
+                isset($accuracy->calculated_at) && 
+                $accuracy->calculated_at instanceof \Carbon\Carbon) {
+                return $accuracy->calculated_at->diffForHumans();
+            }
         }
         
         return 'Belum dievaluasi';
@@ -168,7 +181,18 @@ class AIAlgorithmInfoWidget extends Widget
             return 'Belum pernah dievaluasi';
         }
         
-        $latest = $latestAccuracies->sortByDesc('calculated_at')->first();
+        // Filter hanya model yang valid dan memiliki calculated_at
+        $validAccuracies = $latestAccuracies->filter(function($accuracy) {
+            return $accuracy instanceof \App\Models\ModelAccuracy && 
+                   isset($accuracy->calculated_at) && 
+                   $accuracy->calculated_at instanceof \Carbon\Carbon;
+        });
+        
+        if ($validAccuracies->isEmpty()) {
+            return 'Belum pernah dievaluasi';
+        }
+        
+        $latest = $validAccuracies->sortByDesc('calculated_at')->first();
         return $latest->calculated_at->diffForHumans();
     }
     

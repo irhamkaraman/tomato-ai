@@ -14,6 +14,7 @@ use Filament\Widgets;
 use App\Filament\Widgets\AIAlgorithmInfoWidget;
 use App\Filament\Widgets\SystemStatsWidget;
 use App\Filament\Widgets\RGBTestWidget;
+use App\Filament\Widgets\DataVisualizationWidget;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
@@ -47,10 +48,14 @@ class AdminPanelProvider extends PanelProvider
                 SystemStatsWidget::class,
                 AIAlgorithmInfoWidget::class,
                 RGBTestWidget::class,
+                DataVisualizationWidget::class,
             ])
             ->navigationGroups([
                 'Manajemen Sistem Pakar' => \Filament\Navigation\NavigationGroup::make()
                     ->label('Manajemen Sistem Pakar')
+                    ->collapsible(),
+                'Klasifikasi AI' => \Filament\Navigation\NavigationGroup::make()
+                    ->label('Klasifikasi AI')
                     ->collapsible(),
             ])
             ->middleware([

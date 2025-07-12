@@ -52,6 +52,7 @@ use App\Models\TomatReading;
 use App\Models\TrainingData;
 use App\Models\DecisionTreeRule;
 use App\Models\Recommendation;
+use App\Models\Classification;
 use App\Services\ModelEvaluationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -132,7 +133,7 @@ class TomatReadingController extends Controller
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'device_id' => 'required|string|exists:devices,device_id',
+            'device_id' => 'required|string',
             'red_value' => 'required|integer|min:0|max:255',
             'green_value' => 'required|integer|min:0|max:255',
             'blue_value' => 'required|integer|min:0|max:255',
@@ -141,6 +142,15 @@ class TomatReadingController extends Controller
             'humidity' => 'required|numeric',
             'raw_sensor_data' => 'nullable|array'
         ]);
+
+        // Auto-create device if not exists
+        $device = \App\Models\Device::firstOrCreate(
+            ['device_id' => $request->device_id],
+            [
+                'name' => 'Auto-registered ' . $request->device_id,
+                'location' => 'Unknown'
+            ]
+        );
 
         if ($validator->fails()) {
             return response()->json([
@@ -264,16 +274,16 @@ class TomatReadingController extends Controller
         // Generate recommendations
         $recommendations = $this->generateRecommendations($maturityLevel);
 
-        // Generate comprehensive ML analysis
+        // Generate comprehensive ML analysis using ModelEvaluationService
         $mlAnalysis = [
             'decision_tree' => $this->generateDecisionTreeAnalysis([
                 'red' => $request->red,
                 'green' => $request->green,
                 'blue' => $request->blue,
             ]),
-            'knn_analysis' => $this->knnPrediction($request->red, $request->green, $request->blue),
-            'random_forest' => $this->randomForestPrediction($request->red, $request->green, $request->blue),
-            'ensemble_result' => $this->ensemblePrediction($request->red, $request->green, $request->blue)
+            'knn_analysis' => $this->generateKNNAnalysisFromService($request->red, $request->green, $request->blue),
+            'random_forest' => $this->generateRandomForestAnalysisFromService($request->red, $request->green, $request->blue),
+            'ensemble_result' => $this->calculateEnsembleVotingFromService($request->red, $request->green, $request->blue)
         ];
 
         return response()->json([
@@ -976,6 +986,20 @@ class TomatReadingController extends Controller
             ];
         })->toArray();
 
+        // TAHAP 2.5: Tambahkan data klasifikasi yang sudah terverifikasi sebagai data training tambahan
+        $verifiedClassifications = Classification::where('is_verified', true)->get();
+        $classificationData = $verifiedClassifications->map(function($data) {
+            return [
+                'red' => $data->red_value,
+                'green' => $data->green_value,
+                'blue' => $data->blue_value,
+                'class' => $data->actual_status
+            ];
+        })->toArray();
+
+        // Gabungkan data training dan data klasifikasi terverifikasi
+        $trainingData = array_merge($trainingData, $classificationData);
+
         // TAHAP 3: Fallback ke data default jika tidak ada data training di database
         if (empty($trainingData)) {
             // Data ini berdasarkan penelitian empiris karakteristik warna tomat
@@ -1209,7 +1233,53 @@ class TomatReadingController extends Controller
      * @param int $blue Nilai biru input (0-255)
      * @return array Hasil prediksi Random Forest dengan detail setiap tree
      */
+    /**
+     * =====================================================================================
+     * RANDOM FOREST PREDICTION USING MODEL EVALUATION SERVICE
+     * =====================================================================================
+     *
+     * Method ini menggunakan ModelEvaluationService untuk prediksi Random Forest yang sudah diperbaiki.
+     *
+     * @param int $red Nilai merah input (0-255)
+     * @param int $green Nilai hijau input (0-255)
+     * @param int $blue Nilai biru input (0-255)
+     * @return array|string Hasil prediksi Random Forest
+     */
     private function randomForestPrediction($red, $green, $blue)
+    {
+        try {
+            $prediction = $this->modelEvaluationService->makeSinglePrediction([
+                'red_value' => $red,
+                'green_value' => $green,
+                'blue_value' => $blue
+            ], 'random_forest');
+            
+            // Return format yang konsisten dengan implementasi legacy
+            return [
+                'prediction' => $prediction ?? 'mentah',
+                'confidence' => 0.8, // Default confidence untuk kompatibilitas
+                'algorithm_type' => 'Ensemble Learning - Multiple Decision Trees',
+                'status' => 'success'
+            ];
+        } catch (\Exception $e) {
+            Log::error('Random Forest prediction failed', [
+                'error' => $e->getMessage(),
+                'input' => ['red' => $red, 'green' => $green, 'blue' => $blue]
+            ]);
+            
+            // Fallback ke implementasi legacy jika service gagal
+            return $this->randomForestPredictionLegacy($red, $green, $blue);
+        }
+    }
+
+    /**
+     * =====================================================================================
+     * RANDOM FOREST PREDICTION LEGACY IMPLEMENTATION
+     * =====================================================================================
+     *
+     * Method ini adalah implementasi legacy Random Forest untuk fallback.
+     */
+    private function randomForestPredictionLegacy($red, $green, $blue)
     {
         // TAHAP 1: Inisialisasi forest dengan multiple decision trees
         // Setiap tree memiliki parameter threshold yang berbeda untuk diversitas
@@ -1272,7 +1342,8 @@ class TomatReadingController extends Controller
                 'unique_predictions' => $uniquePredictions,
                 'agreement_level' => $agreementLevel,
                 'diversity_score' => ($uniquePredictions / count($trees)) * 100
-            ]
+            ],
+            'status' => 'legacy_fallback'
         ];
     }
 
@@ -1488,12 +1559,57 @@ class TomatReadingController extends Controller
 
     /**
      * =====================================================================================
-     * IMPLEMENTASI ALGORITMA K-NEAREST NEIGHBORS (KNN)
+     * GENERATE KNN ANALYSIS USING MODEL EVALUATION SERVICE
      * =====================================================================================
      *
-     * Method ini mengimplementasikan algoritma KNN untuk klasifikasi kematangan tomat.
-     * KNN bekerja dengan mencari K tetangga terdekat dalam ruang fitur RGB dan
-     * melakukan voting mayoritas untuk menentukan kelas.
+     * Method ini menggunakan ModelEvaluationService untuk analisis KNN yang sudah diperbaiki.
+     *
+     * @param int $red Nilai merah input (0-255)
+     * @param int $green Nilai hijau input (0-255)
+     * @param int $blue Nilai biru input (0-255)
+     * @return array Hasil analisis KNN dengan detail lengkap
+     */
+    private function generateKNNAnalysisFromService($red, $green, $blue)
+    {
+        try {
+            $prediction = $this->modelEvaluationService->makeSinglePrediction([
+                'red_value' => $red,
+                'green_value' => $green,
+                'blue_value' => $blue
+            ], 'knn');
+            
+            $accuracy = $this->modelEvaluationService->getCurrentAccuracy('knn');
+            
+            return [
+                'name' => 'K-Nearest Neighbor Analysis',
+                'prediction' => $prediction ?? 'mentah',
+                'accuracy' => $accuracy . '%',
+                'algorithm_type' => 'Supervised Learning - Instance Based',
+                'status' => 'success'
+            ];
+        } catch (\Exception $e) {
+            Log::error('KNN analysis failed', [
+                'error' => $e->getMessage(),
+                'input' => ['red' => $red, 'green' => $green, 'blue' => $blue]
+            ]);
+            
+            return [
+                'name' => 'K-Nearest Neighbor Analysis',
+                'prediction' => 'mentah',
+                'accuracy' => '0%',
+                'algorithm_type' => 'Supervised Learning - Instance Based',
+                'status' => 'error',
+                'error' => 'KNN prediction service unavailable'
+            ];
+        }
+    }
+
+    /**
+     * =====================================================================================
+     * IMPLEMENTASI ALGORITMA K-NEAREST NEIGHBORS (KNN) - LEGACY
+     * =====================================================================================
+     *
+     * Method ini adalah implementasi legacy KNN yang masih digunakan untuk fallback.
      *
      * @param int $red Nilai merah input (0-255)
      * @param int $green Nilai hijau input (0-255)
@@ -1502,76 +1618,152 @@ class TomatReadingController extends Controller
      */
     private function knnPrediction($red, $green, $blue)
     {
-        // Ambil data training dari database
-        $trainingDataFromDB = TrainingData::active()->get();
-
-        // Konversi ke format yang dibutuhkan algoritma KNN
-        $trainingData = $trainingDataFromDB->map(function($data) {
-            return [
-                'red' => $data->red,
-                'green' => $data->green,
-                'blue' => $data->blue,
-                'class' => $data->maturity_level
-            ];
-        })->toArray();
-
-        // Fallback ke data default jika tidak ada data training
-        if (empty($trainingData)) {
-            $trainingData = [
-                ['red' => 180, 'green' => 80, 'blue' => 70, 'class' => 'matang'],
-                ['red' => 160, 'green' => 90, 'blue' => 75, 'class' => 'matang'],
-                ['red' => 140, 'green' => 120, 'blue' => 80, 'class' => 'setengah_matang'],
-                ['red' => 120, 'green' => 130, 'blue' => 85, 'class' => 'setengah_matang'],
-                ['red' => 90, 'green' => 150, 'blue' => 70, 'class' => 'mentah'],
-                ['red' => 80, 'green' => 140, 'blue' => 75, 'class' => 'mentah'],
-                ['red' => 70, 'green' => 90, 'blue' => 100, 'class' => 'busuk'],
-                ['red' => 60, 'green' => 85, 'blue' => 95, 'class' => 'busuk']
-            ];
+        try {
+            $prediction = $this->modelEvaluationService->makeSinglePrediction([
+                'red_value' => $red,
+                'green_value' => $green,
+                'blue_value' => $blue
+            ], 'knn');
+            
+            return $prediction ?? 'mentah';
+        } catch (\Exception $e) {
+            Log::error('KNN prediction failed', [
+                'error' => $e->getMessage(),
+                'input' => ['red' => $red, 'green' => $green, 'blue' => $blue]
+            ]);
+            return 'mentah';
         }
-
-        $k = 3; // Jumlah tetangga terdekat
-        $distances = [];
-
-        // Hitung jarak Euclidean untuk setiap data training
-        foreach ($trainingData as $data) {
-            $distance = sqrt(
-                pow($red - $data['red'], 2) +
-                pow($green - $data['green'], 2) +
-                pow($blue - $data['blue'], 2)
-            );
-
-            $distances[] = [
-                'distance' => $distance,
-                'class' => $data['class']
-            ];
-        }
-
-        // Urutkan berdasarkan jarak dan ambil K terdekat
-        usort($distances, function($a, $b) {
-            return $a['distance'] <=> $b['distance'];
-        });
-
-        $nearestNeighbors = array_slice($distances, 0, $k);
-
-        // Voting mayoritas
-        $votes = [];
-        foreach ($nearestNeighbors as $neighbor) {
-            $class = $neighbor['class'];
-            $votes[$class] = ($votes[$class] ?? 0) + 1;
-        }
-
-        // Tentukan kelas dengan suara terbanyak
-        arsort($votes);
-        return array_key_first($votes);
     }
 
     /**
      * =====================================================================================
-     * IMPLEMENTASI ALGORITMA ENSEMBLE LEARNING
+     * GENERATE RANDOM FOREST ANALYSIS USING MODEL EVALUATION SERVICE
      * =====================================================================================
      *
-     * Method ini mengimplementasikan ensemble learning yang menggabungkan hasil
-     * dari Decision Tree, KNN, dan Random Forest untuk menghasilkan prediksi final.
+     * Method ini menggunakan ModelEvaluationService untuk analisis Random Forest yang sudah diperbaiki.
+     *
+     * @param int $red Nilai merah input (0-255)
+     * @param int $green Nilai hijau input (0-255)
+     * @param int $blue Nilai biru input (0-255)
+     * @return array Hasil analisis Random Forest dengan detail lengkap
+     */
+    private function generateRandomForestAnalysisFromService($red, $green, $blue)
+    {
+        try {
+            $prediction = $this->modelEvaluationService->makeSinglePrediction([
+                'red_value' => $red,
+                'green_value' => $green,
+                'blue_value' => $blue
+            ], 'random_forest');
+            
+            $accuracy = $this->modelEvaluationService->getCurrentAccuracy('random_forest');
+            
+            return [
+                'name' => 'Random Forest Analysis',
+                'prediction' => $prediction ?? 'mentah',
+                'accuracy' => $accuracy . '%',
+                'algorithm_type' => 'Ensemble Learning - Multiple Decision Trees',
+                'status' => 'success'
+            ];
+        } catch (\Exception $e) {
+            Log::error('Random Forest analysis failed', [
+                'error' => $e->getMessage(),
+                'input' => ['red' => $red, 'green' => $green, 'blue' => $blue]
+            ]);
+            
+            return [
+                'name' => 'Random Forest Analysis',
+                'prediction' => 'mentah',
+                'accuracy' => '0%',
+                'algorithm_type' => 'Ensemble Learning - Multiple Decision Trees',
+                'status' => 'error',
+                'error' => 'Random Forest prediction service unavailable'
+            ];
+        }
+    }
+
+    /**
+     * =====================================================================================
+     * CALCULATE ENSEMBLE VOTING USING MODEL EVALUATION SERVICE
+     * =====================================================================================
+     *
+     * Method ini menggunakan ModelEvaluationService untuk analisis Ensemble yang sudah diperbaiki.
+     *
+     * @param int $red Nilai merah input (0-255)
+     * @param int $green Nilai hijau input (0-255)
+     * @param int $blue Nilai biru input (0-255)
+     * @return array Hasil analisis Ensemble dengan detail lengkap
+     */
+    private function calculateEnsembleVotingFromService($red, $green, $blue)
+    {
+        try {
+            $prediction = $this->modelEvaluationService->makeSinglePrediction([
+                'red_value' => $red,
+                'green_value' => $green,
+                'blue_value' => $blue
+            ], 'ensemble');
+            
+            $accuracy = $this->modelEvaluationService->getCurrentAccuracy('ensemble');
+            
+            // Dapatkan prediksi individual untuk transparansi
+            $dtPrediction = $this->modelEvaluationService->makeSinglePrediction([
+                'red_value' => $red,
+                'green_value' => $green,
+                'blue_value' => $blue
+            ], 'decision_tree');
+            
+            $knnPrediction = $this->modelEvaluationService->makeSinglePrediction([
+                'red_value' => $red,
+                'green_value' => $green,
+                'blue_value' => $blue
+            ], 'knn');
+            
+            $rfPrediction = $this->modelEvaluationService->makeSinglePrediction([
+                'red_value' => $red,
+                'green_value' => $green,
+                'blue_value' => $blue
+            ], 'random_forest');
+            
+            return [
+                'name' => 'Ensemble Method Analysis',
+                'final_prediction' => $prediction ?? 'mentah',
+                'accuracy' => $accuracy . '%',
+                'individual_predictions' => [
+                    'decision_tree' => $dtPrediction ?? 'mentah',
+                    'knn' => $knnPrediction ?? 'mentah',
+                    'random_forest' => $rfPrediction ?? 'mentah'
+                ],
+                'algorithm_type' => 'Meta-Learning - Ensemble of Multiple Algorithms',
+                'status' => 'success'
+            ];
+        } catch (\Exception $e) {
+            Log::error('Ensemble analysis failed', [
+                'error' => $e->getMessage(),
+                'input' => ['red' => $red, 'green' => $green, 'blue' => $blue]
+            ]);
+            
+            return [
+                'name' => 'Ensemble Method Analysis',
+                'final_prediction' => 'mentah',
+                'accuracy' => '0%',
+                'individual_predictions' => [
+                    'decision_tree' => 'mentah',
+                    'knn' => 'mentah',
+                    'random_forest' => 'mentah'
+                ],
+                'algorithm_type' => 'Meta-Learning - Ensemble of Multiple Algorithms',
+                'status' => 'error',
+                'error' => 'Ensemble prediction service unavailable'
+            ];
+        }
+    }
+
+    /**
+     * =====================================================================================
+     * IMPLEMENTASI ALGORITMA ENSEMBLE LEARNING - LEGACY
+     * =====================================================================================
+     *
+     * Method ini adalah implementasi legacy Ensemble yang masih digunakan untuk fallback.
      *
      * @param int $red Nilai merah input (0-255)
      * @param int $green Nilai hijau input (0-255)
@@ -1580,32 +1772,21 @@ class TomatReadingController extends Controller
      */
     private function ensemblePrediction($red, $green, $blue)
     {
-        // Dapatkan prediksi dari setiap algoritma
-        $decisionTreeResult = $this->determineTomatoMaturity($red, $green, $blue);
-        $knnResult = $this->knnPrediction($red, $green, $blue);
-        $randomForestResult = $this->randomForestPrediction($red, $green, $blue);
-
-        // Ekstrak prediksi dari Random Forest (yang mengembalikan array)
-        $randomForestPrediction = is_array($randomForestResult) ? $randomForestResult['prediction'] : $randomForestResult;
-
-        // Implementasi voting mayoritas
-        $votes = [
-            $decisionTreeResult => 1,
-            $knnResult => 1,
-            $randomForestPrediction => 1
-        ];
-
-        // Hitung voting dan tentukan pemenang
-        $voteCounts = [];
-        foreach ($votes as $prediction => $weight) {
-            $voteCounts[$prediction] = ($voteCounts[$prediction] ?? 0) + $weight;
+        try {
+            $prediction = $this->modelEvaluationService->makeSinglePrediction([
+                'red_value' => $red,
+                'green_value' => $green,
+                'blue_value' => $blue
+            ], 'ensemble');
+            
+            return $prediction ?? 'mentah';
+        } catch (\Exception $e) {
+            Log::error('Ensemble prediction failed', [
+                'error' => $e->getMessage(),
+                'input' => ['red' => $red, 'green' => $green, 'blue' => $blue]
+            ]);
+            return 'mentah';
         }
-
-        // Urutkan berdasarkan jumlah suara
-        arsort($voteCounts);
-
-        // Ambil prediksi dengan suara terbanyak
-        return array_key_first($voteCounts);
     }
 
     /**
@@ -1621,7 +1802,7 @@ class TomatReadingController extends Controller
     public function evaluateModelAccuracy()
     {
         try {
-            $results = $this->modelEvaluationService->l();
+            $results = $this->modelEvaluationService->evaluateAllAlgorithms();
 
             return response()->json([
                 'success' => true,
@@ -1738,6 +1919,229 @@ class TomatReadingController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to get accuracy history',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * =====================================================================================
+     * ENDPOINT UNTUK MENYIMPAN DATA KLASIFIKASI
+     * =====================================================================================
+     *
+     * Method ini menerima data klasifikasi dari ESP32 atau sumber lain untuk
+     * disimpan ke database dan digunakan dalam peningkatan akurasi AI.
+     *
+     * @param Request $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function storeClassification(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'device_id' => 'nullable|string',
+            'red_value' => 'required|integer|min:0|max:255',
+            'green_value' => 'required|integer|min:0|max:255',
+            'blue_value' => 'required|integer|min:0|max:255',
+            'clear_value' => 'nullable|integer|min:0',
+            'actual_status' => 'required|string|in:mentah,setengah_matang,matang,busuk,sangat_matang',
+            'predicted_status' => 'nullable|string|in:mentah,setengah_matang,matang,busuk,sangat_matang',
+            'notes' => 'nullable|string|max:500'
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation error',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            // Jika predicted_status tidak diberikan, gunakan AI untuk prediksi
+            $predictedStatus = $request->predicted_status;
+            if (!$predictedStatus) {
+                $predictedStatus = $this->determineTomatoMaturity(
+                    $request->red_value,
+                    $request->green_value,
+                    $request->blue_value
+                );
+            }
+
+            $classification = Classification::create([
+                'device_id' => $request->device_id,
+                'red_value' => $request->red_value,
+                'green_value' => $request->green_value,
+                'blue_value' => $request->blue_value,
+                'clear_value' => $request->clear_value,
+                'actual_status' => $request->actual_status,
+                'predicted_status' => $predictedStatus,
+                'notes' => $request->notes,
+                'is_verified' => false // Default belum terverifikasi
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Classification data stored successfully',
+                'data' => $classification
+            ], 201);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to store classification data', [
+                'error' => $e->getMessage(),
+                'request_data' => $request->all()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to store classification data',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * =====================================================================================
+     * ENDPOINT UNTUK MENGAMBIL DATA KLASIFIKASI
+     * =====================================================================================
+     *
+     * Method ini mengembalikan daftar data klasifikasi dengan filter opsional.
+     *
+     * @param Request $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function getClassifications(Request $request)
+    {
+        try {
+            $query = Classification::query();
+
+            // Filter berdasarkan status verifikasi
+            if ($request->has('is_verified')) {
+                $query->where('is_verified', $request->boolean('is_verified'));
+            }
+
+            // Filter berdasarkan actual_status
+            if ($request->has('actual_status')) {
+                $query->where('actual_status', $request->actual_status);
+            }
+
+            // Filter berdasarkan predicted_status
+            if ($request->has('predicted_status')) {
+                $query->where('predicted_status', $request->predicted_status);
+            }
+
+            // Filter berdasarkan classification_result
+            if ($request->has('classification_result')) {
+                $query->where('classification_result', $request->boolean('classification_result'));
+            }
+
+            // Pagination
+            $perPage = $request->get('per_page', 15);
+            $classifications = $query->latest()->paginate($perPage);
+
+            return response()->json([
+                'success' => true,
+                'data' => $classifications
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to get classifications', [
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to get classifications',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * =====================================================================================
+     * ENDPOINT UNTUK MEMVERIFIKASI DATA KLASIFIKASI
+     * =====================================================================================
+     *
+     * Method ini memverifikasi data klasifikasi yang sudah ada.
+     *
+     * @param Request $request
+     * @param int $id
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function verifyClassification(Request $request, $id)
+    {
+        try {
+            $classification = Classification::findOrFail($id);
+
+            $classification->update([
+                'is_verified' => true,
+                'verified_at' => now()
+            ]);
+
+            // Trigger evaluasi ulang akurasi model setelah verifikasi
+            $this->modelEvaluationService->evaluateAllAlgorithms();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Classification verified successfully',
+                'data' => $classification->fresh()
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to verify classification', [
+                'error' => $e->getMessage(),
+                'classification_id' => $id
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to verify classification',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * =====================================================================================
+     * ENDPOINT UNTUK MENDAPATKAN STATISTIK AKURASI KLASIFIKASI
+     * =====================================================================================
+     *
+     * Method ini mengembalikan statistik akurasi berdasarkan data klasifikasi.
+     *
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function getClassificationAccuracyStats()
+    {
+        try {
+            $totalVerified = Classification::where('is_verified', true)->count();
+            $correctPredictions = Classification::where('is_verified', true)
+                ->where('classification_result', true)
+                ->count();
+            $incorrectPredictions = Classification::where('is_verified', true)
+                ->where('classification_result', false)
+                ->count();
+            $unverified = Classification::where('is_verified', false)->count();
+
+            $accuracyPercentage = $totalVerified > 0 ? ($correctPredictions / $totalVerified) * 100 : 0;
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'total_verified' => $totalVerified,
+                    'correct_predictions' => $correctPredictions,
+                    'incorrect_predictions' => $incorrectPredictions,
+                    'unverified' => $unverified,
+                    'accuracy_percentage' => round($accuracyPercentage, 2)
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to get classification accuracy stats', [
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to get classification accuracy stats',
                 'error' => $e->getMessage()
             ], 500);
         }
