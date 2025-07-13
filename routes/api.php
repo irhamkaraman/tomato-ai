@@ -3,9 +3,10 @@
 use App\Http\Controllers\TomatReadingController;
 use Illuminate\Support\Facades\Route;
 
-Route::prefix('api/tomat-readings')->group(function () {
+// Route untuk ESP32 - endpoint utama untuk menerima data sensor
+Route::prefix('tomat-readings')->group(function () {
     Route::get('/', [TomatReadingController::class, 'index']);
-    Route::post('/', [TomatReadingController::class, 'store']);
+    Route::post('/', [TomatReadingController::class, 'store']); // Endpoint untuk ESP32
     Route::get('/{id}', [TomatReadingController::class, 'show']);
     
     // Model Accuracy Evaluation Routes
@@ -31,4 +32,4 @@ Route::prefix('api/tomat-readings')->group(function () {
 });
 
 // Additional routes for RGB analysis
-Route::post('api/analyze-rgb', [TomatReadingController::class, 'analyze']);
+Route::post('analyze-rgb', [TomatReadingController::class, 'analyze']);

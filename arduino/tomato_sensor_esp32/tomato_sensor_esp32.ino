@@ -1,47 +1,15 @@
-/*
- * =====================================================================================
- * SISTEM SENSOR KEMATANGAN TOMAT BERBASIS ESP32
- * =====================================================================================
- *
- * Kode ini mengimplementasikan sistem sensor untuk deteksi kematangan tomat menggunakan:
- * - ESP32 sebagai mikrokontroler utama
- * - Sensor TCS34725 untuk deteksi warna RGB
- * - Sensor DHT11 untuk suhu dan kelembaban
- * - Display OLED SSD1306 untuk menampilkan data
- * - Koneksi WiFi untuk mengirim data ke server Laravel
- *
- * KOMPONEN YANG DIGUNAKAN:
- * - ESP32 Development Board
- * - Sensor Warna TCS34725 (I2C)
- * - Sensor Suhu & Kelembaban DHT11
- * - Display OLED 128x64 SSD1306 (I2C)
- *
- * KONEKSI PIN:
- * - DHT11 Data Pin: GPIO 23
- * - I2C SDA: GPIO 21
- * - I2C SCL: GPIO 22
- * - TCS34725: I2C (SDA/SCL)
- * - OLED Display: I2C (SDA/SCL)
- *
- * =====================================================================================
- */
-
 #include <Wire.h>
-#include <Adafruit_SSD1306.h>
+#include <LiquidCrystal_I2C.h>
 #include <Adafruit_TCS34725.h>
 #include <DHT.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include <WiFiClientSecure.h>
 
 // Pin Definitions
-#define DHTPIN 23        // Pin untuk sensor DHT11
-#define DHTTYPE DHT11    // Tipe sensor DHT
-#define SCREEN_WIDTH 128 // Lebar OLED
-#define SCREEN_HEIGHT 64 // Tinggi OLED
-#define OLED_RESET -1    // Pin reset untuk OLED, jika tidak digunakan
-#define I2C_SDA_PIN 21   // Pin SDA untuk I2C
-#define I2C_SCL_PIN 22   // Pin SCL untuk I2C
+#define DHTPIN 23     // Pin untuk sensor DHT11
+#define DHTTYPE DHT11 // Tipe sensor DHT
 
 // Setup DHT sensor
 DHT dht(DHTPIN, DHTTYPE);
@@ -49,26 +17,29 @@ DHT dht(DHTPIN, DHTTYPE);
 // Setup TCS34725 sensor
 Adafruit_TCS34725 colorSensor = Adafruit_TCS34725(TCS34725_INTEGRATIONTIME_614MS, TCS34725_GAIN_1X);
 
-// Setup OLED display
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+// Setup LCD 16x2 I2C - ganti alamat jika perlu (0x27 / 0x3F)
+LiquidCrystal_I2C lcd(0x27, 16, 2); // Alamat default 0x27
 
-// WiFi Credentials - GANTI DENGAN KREDENSIAL WIFI ANDA
+// WiFi Credentials - GANTI SESUAI JARINGAN ANDA
 const char *ssid = "arduino";
 const char *password = "12345678";
 
-// Device ID - GANTI DENGAN ID DEVICE YANG TERDAFTAR DI DATABASE
+// Device ID - GANTI SESUAI DATABASE
 const char *deviceId = "ESP32_SENSOR_001";
 
-// URL server API untuk mengirim data - GANTI DENGAN URL SERVER ANDA
+// URL server API - Domain yang sudah di-hosting
 const char *serverUrl = "https://tomato-ai.lik.my.id/api/tomat-readings";
 
-// Variabel untuk tracking waktu
+// URL untuk development/testing lokal
+// const char *serverUrl = "http://localhost:8000/api/tomat-readings";
+
+// Interval baca/kirim data
 unsigned long lastSensorRead = 0;
 unsigned long lastDataSend = 0;
-const unsigned long SENSOR_INTERVAL = 2000; // Baca sensor setiap 2 detik
-const unsigned long SEND_INTERVAL = 10000;  // Kirim data setiap 10 detik
+const unsigned long SENSOR_INTERVAL = 2000; // Baca setiap 2 detik
+const unsigned long SEND_INTERVAL = 10000;  // Kirim setiap 10 detik
 
-// Variabel untuk menyimpan data sensor
+// Struktur data sensor
 struct SensorData
 {
     float temperature;
@@ -87,136 +58,112 @@ SensorData currentData;
  */
 bool sendDataToServer(SensorData data)
 {
-    bool success = false;
-
-    // Cek koneksi WiFi terlebih dahulu
-    if (WiFi.status() != WL_CONNECTED) {
+    if (WiFi.status() != WL_CONNECTED)
+    {
         Serial.println("✗ WiFi tidak terhubung!");
-        Serial.println("Status WiFi: " + String(WiFi.status()));
-
-        // Coba reconnect
-        Serial.println("Mencoba reconnect WiFi...");
-        WiFi.reconnect();
-
-        // Tunggu maksimal 10 detik untuk reconnect
-        int attempts = 0;
-        while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-            delay(500);
-            Serial.print(".");
-            attempts++;
-        }
-        Serial.println();
-
-        if (WiFi.status() != WL_CONNECTED) {
-            Serial.println("✗ Gagal reconnect WiFi");
-            return false;
-        }
-
-        Serial.println("✓ WiFi berhasil reconnect");
+        return false;
     }
 
-    Serial.println("✓ WiFi terhubung: " + WiFi.localIP().toString());
-    Serial.println("✓ Signal strength: " + String(WiFi.RSSI()) + " dBm");
-
-    // Test ping ke server
-    Serial.println("Testing koneksi ke server...");
-    Serial.println("Server URL: " + String(serverUrl));
+    // Untuk HTTPS, gunakan WiFiClientSecure
+    WiFiClientSecure client;
+    client.setInsecure(); // Skip certificate verification (untuk testing)
 
     HTTPClient http;
-    http.begin(serverUrl);
+    http.begin(client, serverUrl);
+
+    // Tambahkan header yang diperlukan
     http.addHeader("Content-Type", "application/json");
     http.addHeader("Accept", "application/json");
     http.addHeader("User-Agent", "ESP32-TomatoSensor/1.0");
-    http.setTimeout(15000); // Timeout 15 detik
+    http.setTimeout(15000); // 15 detik timeout
 
-    // Membuat JSON payload menggunakan ArduinoJson
+    // Debug: Print URL yang digunakan
+    Serial.println("Server URL: " + String(serverUrl));
+
     StaticJsonDocument<300> jsonDoc;
     jsonDoc["device_id"] = deviceId;
     jsonDoc["red_value"] = data.red;
     jsonDoc["green_value"] = data.green;
     jsonDoc["blue_value"] = data.blue;
     jsonDoc["clear_value"] = data.clear;
-    jsonDoc["temperature"] = round(data.temperature * 10) / 10.0; // Round to 1 decimal
-    jsonDoc["humidity"] = round(data.humidity * 10) / 10.0; // Round to 1 decimal
+    jsonDoc["temperature"] = round(data.temperature * 10) / 10.0;
+    jsonDoc["humidity"] = round(data.humidity * 10) / 10.0;
 
     String jsonString;
     serializeJson(jsonDoc, jsonString);
 
-    Serial.println("JSON Payload:");
-    Serial.println(jsonString);
+    // Debug: Print payload
+    Serial.println("JSON Payload: " + jsonString);
     Serial.println("Payload Length: " + String(jsonString.length()));
-    Serial.println("Mengirim data ke server:");
 
     int httpResponseCode = http.POST(jsonString);
+    bool success = false;
+
+    Serial.println("HTTP Response Code: " + String(httpResponseCode));
 
     if (httpResponseCode > 0)
     {
         String response = http.getString();
-        Serial.printf("Response Code: %d\n", httpResponseCode);
-        Serial.println("Response: " + response);
+        Serial.println("Server Response: " + response);
 
         if (httpResponseCode == 200 || httpResponseCode == 201)
         {
             Serial.println("✓ Data berhasil dikirim ke server");
-            displayStatus("Data Sent OK", true);
+            displayStatus("OK", true);
             success = true;
         }
         else
         {
-            Serial.println("⚠ Server merespons dengan error");
-            displayStatus("Server Error", false);
+            Serial.println("✗ Server menolak data: " + String(httpResponseCode));
+            displayStatus("Server Err", false);
             success = false;
         }
     }
     else
     {
-        Serial.printf("✗ Error mengirim data: %d\n", httpResponseCode);
-
-        // Detail error berdasarkan kode
+        // Handle specific error codes
         switch(httpResponseCode) {
             case -1:
-                Serial.println("Error: Connection failed");
+                Serial.println("✗ Connection failed");
                 break;
             case -2:
-                Serial.println("Error: Send header failed");
+                Serial.println("✗ Send header failed");
                 break;
             case -3:
-                Serial.println("Error: Send payload failed");
+                Serial.println("✗ Send payload failed");
                 break;
             case -4:
-                Serial.println("Error: Not connected");
+                Serial.println("✗ Not connected");
                 break;
             case -5:
-                Serial.println("Error: Connection lost");
+                Serial.println("✗ Connection lost");
                 break;
             case -6:
-                Serial.println("Error: No stream");
+                Serial.println("✗ No stream");
                 break;
             case -7:
-                Serial.println("Error: No HTTP server");
+                Serial.println("✗ No HTTP server");
                 break;
             case -8:
-                Serial.println("Error: Too less RAM");
+                Serial.println("✗ Too less RAM");
                 break;
             case -9:
-                Serial.println("Error: Encoding");
+                Serial.println("✗ Encoding error");
                 break;
             case -10:
-                Serial.println("Error: Stream write");
+                Serial.println("✗ Stream write error");
                 break;
             case -11:
-                Serial.println("Error: Read timeout");
+                Serial.println("✗ Read timeout");
                 break;
             default:
-                Serial.println("Error: Unknown error");
-                break;
+                Serial.println("✗ Unknown error: " + String(httpResponseCode));
         }
         displayStatus("Send Failed", false);
         success = false;
     }
-// Menutup koneksi
-    http.end();
 
+    http.end();
     return success;
 }
 
@@ -228,11 +175,9 @@ SensorData readSensors()
     SensorData data;
     data.isValid = true;
 
-    // Membaca data DHT11
     data.temperature = dht.readTemperature();
     data.humidity = dht.readHumidity();
 
-    // Validasi data DHT11
     if (isnan(data.temperature) || isnan(data.humidity))
     {
         Serial.println("⚠ Gagal membaca sensor DHT11");
@@ -240,11 +185,9 @@ SensorData readSensors()
         return data;
     }
 
-    // Membaca data sensor warna TCS34725
     uint16_t rawRed, rawGreen, rawBlue, rawClear;
     colorSensor.getRawData(&rawRed, &rawGreen, &rawBlue, &rawClear);
 
-    // Validasi data sensor warna
     if (rawClear == 0)
     {
         Serial.println("⚠ Gagal membaca sensor warna TCS34725");
@@ -252,80 +195,32 @@ SensorData readSensors()
         return data;
     }
 
-    // Debug: Tampilkan nilai raw
-    Serial.println("Raw RGB Values:");
-    Serial.println("R=" + String(rawRed) + " G=" + String(rawGreen) + " B=" + String(rawBlue) + " Clear=" + String(rawClear));
-
-    // Normalisasi nilai RGB ke rentang 0-255
     data.red = map(rawRed, 0, rawClear, 0, 255);
     data.green = map(rawGreen, 0, rawClear, 0, 255);
     data.blue = map(rawBlue, 0, rawClear, 0, 255);
     data.clear = rawClear;
 
-    // Pastikan nilai tidak melebihi 255
     data.red = constrain(data.red, 0, 255);
     data.green = constrain(data.green, 0, 255);
     data.blue = constrain(data.blue, 0, 255);
-
-    // Debug: Tampilkan nilai setelah normalisasi
-    Serial.println("Normalized RGB Values:");
-    Serial.println("R=" + String(data.red) + " G=" + String(data.green) + " B=" + String(data.blue));
 
     return data;
 }
 
 /**
- * Fungsi untuk menampilkan data sensor di OLED
+ * Fungsi untuk menampilkan data sensor di LCD 16x2
  */
 void displaySensorData(SensorData data)
 {
-    display.clearDisplay();
-    display.setTextSize(1);
-    display.setTextColor(SSD1306_WHITE);
+    lcd.clear();
 
-    // Baris 1: Suhu dan Kelembaban
-    display.setCursor(0, 0);
-    display.printf("T:%.1fC H:%.1f%%", data.temperature, data.humidity);
+    // Baris pertama: suhu dan kelembaban
+    lcd.setCursor(0, 0);
+    lcd.printf("T:%.1f H:%.1f", data.temperature, data.humidity);
 
-    // Baris 2: Data RGB
-    display.setCursor(0, 12);
-    display.printf("R:%d G:%d B:%d", data.red, data.green, data.blue);
-
-    // Baris 3: Clear value
-    display.setCursor(0, 24);
-    display.printf("Clear: %d", data.clear);
-
-    // Baris 4: Status deteksi tomat
-    display.setCursor(0, 36);
-    display.setTextSize(1);
-
-    // Algoritma sederhana deteksi tomat berdasarkan warna
-    if (data.red > data.green && data.red > data.blue && data.red > 100)
-    {
-        display.print("TOMAT TERDETEKSI");
-    }
-    else if (data.green > data.red && data.green > data.blue)
-    {
-        display.print("TOMAT MENTAH");
-    }
-    else
-    {
-        display.print("TIDAK ADA TOMAT");
-    }
-
-    // Status WiFi
-    display.setCursor(0, 48);
-    display.setTextSize(1);
-    if (WiFi.status() == WL_CONNECTED)
-    {
-        display.print("WiFi: Connected");
-    }
-    else
-    {
-        display.print("WiFi: Disconnected");
-    }
-
-    display.display();
+    // Baris kedua: warna RGB
+    lcd.setCursor(0, 1);
+    lcd.printf("R:%d G:%d B:%d", data.red, data.green, data.blue);
 }
 
 /**
@@ -333,22 +228,13 @@ void displaySensorData(SensorData data)
  */
 void displayStatus(String message, bool success)
 {
-    display.clearDisplay();
-    display.setTextSize(1);
-    display.setTextColor(SSD1306_WHITE);
-    display.setCursor(0, 56);
-
-    if (success)
-    {
-        display.print("✓ " + message);
-    }
-    else
-    {
-        display.print("✗ " + message);
-    }
-
-    display.display();
-    delay(1000); // Tampilkan status selama 1 detik
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(success ? "✓" : "✗");
+    lcd.print(" Sent:");
+    lcd.setCursor(0, 1);
+    lcd.print(message);
+    delay(1000);
 }
 
 /**
@@ -358,7 +244,6 @@ void initWiFi()
 {
     Serial.println("Menghubungkan ke WiFi...");
     WiFi.begin(ssid, password);
-
     int attempts = 0;
     while (WiFi.status() != WL_CONNECTED && attempts < 20)
     {
@@ -366,132 +251,89 @@ void initWiFi()
         Serial.print(".");
         attempts++;
     }
-
     if (WiFi.status() == WL_CONNECTED)
     {
-        Serial.println();
-        Serial.println("✓ WiFi terhubung!");
+        Serial.println("\n✓ WiFi terhubung!");
         Serial.print("IP Address: ");
         Serial.println(WiFi.localIP());
     }
     else
     {
-        Serial.println();
-        Serial.println("✗ Gagal terhubung ke WiFi");
+        Serial.println("\n✗ Gagal terhubung ke WiFi");
     }
 }
 
 /**
- * Setup function - dijalankan sekali saat ESP32 dinyalakan
+ * Setup function
  */
 void setup()
 {
-    // Inisialisasi Serial Monitor
     Serial.begin(115200);
-    Serial.println("\n=== SISTEM SENSOR KEMATANGAN TOMAT ===");
-    Serial.println("Initializing...");
+    Serial.println("=== SISTEM SENSOR KEMATANGAN TOMAT ===");
 
-    // Inisialisasi I2C
-    Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
+    Wire.begin(21, 22); // SDA, SCL
+
+    // Inisialisasi LCD
+    lcd.begin();
+    lcd.backlight();
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("LCD OK");
 
     // Inisialisasi WiFi
     initWiFi();
 
-    // Inisialisasi sensor DHT11
+    // Inisialisasi DHT11
     dht.begin();
     Serial.println("✓ DHT11 sensor initialized");
 
-    // Inisialisasi sensor TCS34725
+    // Inisialisasi TCS34725
     if (colorSensor.begin())
     {
         Serial.println("✓ TCS34725 color sensor initialized");
     }
     else
     {
-        Serial.println("✗ TCS34725 color sensor not detected!");
+        Serial.println("✗ TCS34725 tidak ditemukan!");
         while (1)
-        {
-            delay(1000);
-            Serial.println("Periksa koneksi sensor TCS34725...");
-        }
+            ; // Stop program
     }
 
-    // Inisialisasi OLED display
-    if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C))
-    {
-        Serial.println("✗ OLED display initialization failed!");
-        while (1)
-        {
-            delay(1000);
-            Serial.println("Periksa koneksi OLED display...");
-        }
-    }
-
-    Serial.println("✓ OLED display initialized");
-
-    // Tampilkan splash screen
-    display.clearDisplay();
-    display.setTextSize(2);
-    display.setTextColor(SSD1306_WHITE);
-    display.setCursor(0, 0);
-    display.println("TOMATO");
-    display.println("SENSOR");
-    display.setTextSize(1);
-    display.println("System Ready");
-    display.display();
-    delay(3000);
-
-    Serial.println("=== SISTEM SIAP BEROPERASI ===");
-    Serial.println();
+    delay(2000);
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("System Ready");
+    delay(2000);
+    Serial.println("=== SISTEM SIAP BEROPERASI ===\n");
 }
 
 /**
- * Loop function - dijalankan berulang-ulang
+ * Loop function
  */
 void loop()
 {
     unsigned long currentTime = millis();
 
-    // Baca sensor setiap SENSOR_INTERVAL
     if (currentTime - lastSensorRead >= SENSOR_INTERVAL)
     {
         currentData = readSensors();
-
         if (currentData.isValid)
         {
-            // Tampilkan data di Serial Monitor
-            Serial.printf("Suhu: %.1f°C, Kelembaban: %.1f%%, ",
-                          currentData.temperature, currentData.humidity);
-            Serial.printf("RGB: R=%d G=%d B=%d, Clear=%d\n",
-                          currentData.red, currentData.green, currentData.blue, currentData.clear);
-
-            // Tampilkan data di OLED
             displaySensorData(currentData);
         }
-
         lastSensorRead = currentTime;
     }
 
-    // Kirim data ke server setiap SEND_INTERVAL
     if (currentTime - lastDataSend >= SEND_INTERVAL && currentData.isValid)
     {
         bool sendSuccess = sendDataToServer(currentData);
-
-        if (sendSuccess) {
-            Serial.println("✓ Data berhasil dikirim ke server");
-        } else {
-            Serial.println("✗ Gagal mengirim data ke server");
-        }
-
         lastDataSend = currentTime;
     }
 
-    // Cek koneksi WiFi dan reconnect jika perlu
     if (WiFi.status() != WL_CONNECTED)
     {
-        Serial.println("WiFi terputus, mencoba reconnect...");
         initWiFi();
     }
 
-    delay(100); // Small delay untuk stabilitas
+    delay(100);
 }
