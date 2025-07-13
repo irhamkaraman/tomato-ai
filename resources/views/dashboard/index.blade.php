@@ -557,11 +557,82 @@
         }
 
         function updateLatestReading(reading) {
-            if (!reading) return;
+            if (!reading) {
+                $('#latest-reading-card').html(`
+                    <div class="text-center py-8 text-gray-500">
+                        <i class="fas fa-exclamation-circle text-4xl mb-4"></i>
+                        <p>Belum ada data dari ESP32</p>
+                    </div>
+                `);
+                return;
+            }
 
             const card = $('#latest-reading-card');
-            // Update konten card dengan data terbaru
-            // Implementasi update konten sesuai struktur HTML yang ada
+            const maturityClass = getMaturityClass(reading.maturity_level);
+            const maturityText = reading.maturity_level ? reading.maturity_level.replace('_', ' ') : '-';
+            
+            card.html(`
+                <div class="space-y-4">
+                    <div class="flex justify-between items-center">
+                        <span class="text-gray-600">Device ID:</span>
+                        <span class="font-semibold">${reading.device_id}</span>
+                    </div>
+                    
+                    <div class="grid grid-cols-3 gap-4">
+                        <div class="text-center p-3 bg-red-50 rounded-lg">
+                            <div class="text-red-600 font-bold text-lg">${reading.red_value}</div>
+                            <div class="text-sm text-gray-600">Red</div>
+                        </div>
+                        <div class="text-center p-3 bg-green-50 rounded-lg">
+                            <div class="text-green-600 font-bold text-lg">${reading.green_value}</div>
+                            <div class="text-sm text-gray-600">Green</div>
+                        </div>
+                        <div class="text-center p-3 bg-blue-50 rounded-lg">
+                            <div class="text-blue-600 font-bold text-lg">${reading.blue_value}</div>
+                            <div class="text-sm text-gray-600">Blue</div>
+                        </div>
+                    </div>
+                    
+                    ${(reading.temperature || reading.humidity) ? `
+                    <div class="grid grid-cols-2 gap-4">
+                        ${reading.temperature ? `
+                        <div class="text-center p-3 bg-orange-50 rounded-lg">
+                            <div class="text-orange-600 font-bold text-lg">${parseFloat(reading.temperature).toFixed(1)}°C</div>
+                            <div class="text-sm text-gray-600">Temperature</div>
+                        </div>
+                        ` : ''}
+                        ${reading.humidity ? `
+                        <div class="text-center p-3 bg-cyan-50 rounded-lg">
+                            <div class="text-cyan-600 font-bold text-lg">${parseFloat(reading.humidity).toFixed(1)}%</div>
+                            <div class="text-sm text-gray-600">Humidity</div>
+                        </div>
+                        ` : ''}
+                    </div>
+                    ` : ''}
+                    
+                    ${reading.maturity_level ? `
+                    <div class="p-4 bg-gray-50 rounded-lg">
+                        <div class="flex justify-between items-center mb-2">
+                            <span class="text-gray-600">Tingkat Kematangan:</span>
+                            <span class="px-3 py-1 rounded-full text-sm font-semibold ${maturityClass}">
+                                ${maturityText.charAt(0).toUpperCase() + maturityText.slice(1)}
+                            </span>
+                        </div>
+                        ${reading.confidence_score ? `
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-600">Confidence:</span>
+                            <span class="font-semibold">${parseFloat(reading.confidence_score).toFixed(1)}%</span>
+                        </div>
+                        ` : ''}
+                    </div>
+                    ` : ''}
+                    
+                    <div class="text-sm text-gray-500 text-center">
+                        <i class="fas fa-clock mr-1"></i>
+                        ${new Date(reading.created_at).toLocaleString('id-ID')}
+                    </div>
+                </div>
+            `);
         }
 
         function updateStats(stats) {
@@ -571,9 +642,92 @@
             $('#today-readings').text(stats.readings_today || 0);
         }
 
+        function getMaturityClass(maturityLevel) {
+            switch(maturityLevel) {
+                case 'mentah':
+                    return 'bg-red-100 text-red-800';
+                case 'setengah_matang':
+                    return 'bg-yellow-100 text-yellow-800';
+                case 'matang':
+                    return 'bg-green-100 text-green-800';
+                case 'busuk':
+                    return 'bg-gray-100 text-gray-800';
+                default:
+                    return 'bg-gray-100 text-gray-800';
+            }
+        }
+
         function updateReadingsTable(readings) {
-            // Update tabel dengan data terbaru
-            // Implementasi update tabel sesuai struktur HTML yang ada
+            const tbody = $('#readings-table-body');
+            
+            if (!readings || readings.length === 0) {
+                tbody.html(`
+                    <tr>
+                        <td colspan="6" class="text-center py-8 text-gray-500">
+                            <i class="fas fa-inbox text-4xl mb-4"></i>
+                            <p>Belum ada data readings</p>
+                        </td>
+                    </tr>
+                `);
+                return;
+            }
+            
+            let html = '';
+            readings.forEach(reading => {
+                const maturityClass = getMaturityClass(reading.maturity_level);
+                const maturityText = reading.maturity_level ? reading.maturity_level.replace('_', ' ') : '-';
+                const createdAt = new Date(reading.created_at);
+                
+                html += `
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                            ${reading.device_id}
+                        </td>
+                        <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
+                            <div class="flex space-x-2">
+                                <span class="px-2 py-1 bg-red-100 text-red-800 rounded text-xs">R:${reading.red_value}</span>
+                                <span class="px-2 py-1 bg-green-100 text-green-800 rounded text-xs">G:${reading.green_value}</span>
+                                <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">B:${reading.blue_value}</span>
+                            </div>
+                        </td>
+                        <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
+                            ${(reading.temperature || reading.humidity) ? `
+                                <div class="text-xs">
+                                    ${reading.temperature ? `<div>${parseFloat(reading.temperature).toFixed(1)}°C</div>` : ''}
+                                    ${reading.humidity ? `<div>${parseFloat(reading.humidity).toFixed(1)}%</div>` : ''}
+                                </div>
+                            ` : '<span class="text-gray-400">-</span>'}
+                        </td>
+                        <td class="px-4 py-4 whitespace-nowrap">
+                            ${reading.maturity_level ? `
+                                <span class="px-2 py-1 text-xs font-semibold rounded-full ${maturityClass}">
+                                    ${maturityText.charAt(0).toUpperCase() + maturityText.slice(1)}
+                                </span>
+                                ${reading.confidence_score ? `<div class="text-xs text-gray-500 mt-1">${parseFloat(reading.confidence_score).toFixed(1)}%</div>` : ''}
+                            ` : '<span class="text-gray-400">-</span>'}
+                        </td>
+                        <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
+                            ${createdAt.toLocaleDateString('id-ID', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'})}
+                        </td>
+                        <td class="px-4 py-4 whitespace-nowrap text-sm font-medium">
+                            <div class="flex space-x-2">
+                                <button onclick="openTrainingModal(${reading.id})" 
+                                        class="text-green-600 hover:text-green-900 transition-colors"
+                                        title="Simpan sebagai Training Data">
+                                    <i class="fas fa-plus-circle"></i>
+                                </button>
+                                <button onclick="deleteReading(${reading.id})" 
+                                        class="text-red-600 hover:text-red-900 transition-colors"
+                                        title="Hapus Data">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            });
+            
+            tbody.html(html);
         }
 
         // Modal functions
