@@ -27,11 +27,14 @@ const char *password = "12345678";
 // Device ID - GANTI SESUAI DATABASE
 const char *deviceId = "ESP32_SENSOR_001";
 
-// URL server API - Domain yang sudah di-hosting (GET endpoint)
-const char *serverUrl = "https://tomato-ai.lik.my.id/api/tomat-readings/sensor-data";
+// URL server API - Domain yang sudah di-hosting (GET endpoint) - Dashboard dengan AI Analysis
+const char *serverUrl = "https://tomato-ai.lik.my.id/api/dashboard/sensor-data";
 
 // URL untuk development/testing lokal (GET endpoint)
-// const char *serverUrl = "http://localhost:8000/api/tomat-readings/sensor-data";
+// const char *serverUrl = "http://localhost:8000/api/dashboard/sensor-data";
+
+// URL legacy (Endpoint lama)
+// const char *serverUrl = "https://tomato-ai.lik.my.id/api/tomat-readings/sensor-data";
 
 // Interval baca/kirim data
 unsigned long lastSensorRead = 0;

@@ -1,9 +1,13 @@
 <?php
 
 use App\Http\Controllers\TomatReadingController;
+use App\Http\Controllers\DashboardController;
 use Illuminate\Support\Facades\Route;
 
-// Route untuk ESP32 - endpoint utama untuk menerima data sensor
+// Route untuk ESP32 - endpoint baru untuk dashboard dengan analisis AI real-time
+Route::get('/dashboard/sensor-data', [DashboardController::class, 'index']); // Endpoint baru untuk ESP32 ke Dashboard
+
+// Route untuk ESP32 - endpoint utama untuk menerima data sensor (legacy)
 Route::prefix('tomat-readings')->group(function () {
     Route::get('/', [TomatReadingController::class, 'index']);
     Route::post('/', [TomatReadingController::class, 'store']); // Endpoint untuk ESP32 (POST)

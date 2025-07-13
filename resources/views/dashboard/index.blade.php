@@ -102,6 +102,148 @@
             </div>
         </div>
 
+        <!-- Real-time Sensor Data & AI Analysis -->
+        @if(isset($sensorData) && $sensorData)
+        <div class="bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg shadow-lg p-6 mb-8 text-white">
+            <h2 class="text-2xl font-bold mb-4">
+                <i class="fas fa-microchip mr-2"></i>
+                Data Sensor Real-time & Analisis AI
+            </h2>
+            
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Sensor Data -->
+                <div class="bg-white/10 backdrop-blur-sm rounded-lg p-4">
+                    <h3 class="text-lg font-semibold mb-3">
+                        <i class="fas fa-sensors mr-2"></i>
+                        Data Sensor ESP32
+                    </h3>
+                    
+                    <div class="grid grid-cols-3 gap-3 mb-4">
+                        <div class="text-center p-3 bg-red-500/20 rounded-lg">
+                            <div class="text-white font-bold text-xl">{{ $sensorData['red_value'] }}</div>
+                            <div class="text-red-200 text-sm">Red</div>
+                        </div>
+                        <div class="text-center p-3 bg-green-500/20 rounded-lg">
+                            <div class="text-white font-bold text-xl">{{ $sensorData['green_value'] }}</div>
+                            <div class="text-green-200 text-sm">Green</div>
+                        </div>
+                        <div class="text-center p-3 bg-blue-500/20 rounded-lg">
+                            <div class="text-white font-bold text-xl">{{ $sensorData['blue_value'] }}</div>
+                            <div class="text-blue-200 text-sm">Blue</div>
+                        </div>
+                    </div>
+                    
+                    @if(isset($sensorData['temperature']) || isset($sensorData['humidity']))
+                    <div class="grid grid-cols-2 gap-3">
+                        @if(isset($sensorData['temperature']))
+                        <div class="text-center p-3 bg-orange-500/20 rounded-lg">
+                            <div class="text-white font-bold text-lg">{{ number_format($sensorData['temperature'], 1) }}°C</div>
+                            <div class="text-orange-200 text-sm">Temperature</div>
+                        </div>
+                        @endif
+                        @if(isset($sensorData['humidity']))
+                        <div class="text-center p-3 bg-cyan-500/20 rounded-lg">
+                            <div class="text-white font-bold text-lg">{{ number_format($sensorData['humidity'], 1) }}%</div>
+                            <div class="text-cyan-200 text-sm">Humidity</div>
+                        </div>
+                        @endif
+                    </div>
+                    @endif
+                    
+                    <div class="text-center mt-3 text-sm text-gray-200">
+                        <i class="fas fa-wifi mr-1"></i>
+                        Device: {{ $sensorData['device_id'] }}
+                    </div>
+                </div>
+                
+                <!-- AI Analysis Results -->
+                @if(isset($analysisResult) && !isset($analysisResult['error']))
+                <div class="bg-white/10 backdrop-blur-sm rounded-lg p-4">
+                    <h3 class="text-lg font-semibold mb-3">
+                        <i class="fas fa-brain mr-2"></i>
+                        Hasil Analisis AI
+                    </h3>
+                    
+                    <!-- Ensemble Result -->
+                    @if(isset($analysisResult['ensemble']))
+                    <div class="bg-white/20 rounded-lg p-4 mb-4">
+                        <div class="text-center">
+                            <div class="text-2xl font-bold mb-2">{{ ucfirst(str_replace('_', ' ', $analysisResult['ensemble']['prediction'])) }}</div>
+                            <div class="text-sm mb-2">Confidence: {{ number_format($analysisResult['ensemble']['confidence'] * 100, 1) }}%</div>
+                            <div class="text-xs text-gray-200">{{ $analysisResult['ensemble']['consensus'] }}</div>
+                        </div>
+                    </div>
+                    @endif
+                    
+                    <!-- Individual Algorithm Results -->
+                    @if(isset($analysisResult['algorithms']))
+                    <div class="space-y-2">
+                        @foreach($analysisResult['algorithms'] as $algorithm => $result)
+                        <div class="flex justify-between items-center bg-white/10 rounded p-2">
+                            <span class="text-sm font-medium">{{ ucfirst(str_replace('_', ' ', $algorithm)) }}</span>
+                            <span class="text-sm">{{ ucfirst(str_replace('_', ' ', $result['prediction'] ?? $result['classification'] ?? 'N/A')) }}</span>
+                        </div>
+                        @endforeach
+                    </div>
+                    @endif
+                    
+                    <div class="text-center mt-3 text-xs text-gray-200">
+                        <i class="fas fa-clock mr-1"></i>
+                        {{ $analysisResult['analysis_time'] ?? now()->format('H:i:s') }}
+                    </div>
+                </div>
+                @elseif(isset($analysisResult['error']))
+                <div class="bg-red-500/20 backdrop-blur-sm rounded-lg p-4">
+                    <h3 class="text-lg font-semibold mb-3 text-red-200">
+                        <i class="fas fa-exclamation-triangle mr-2"></i>
+                        Error Analisis
+                    </h3>
+                    <p class="text-red-200">{{ $analysisResult['error'] }}</p>
+                    @if(isset($analysisResult['fallback_prediction']))
+                    <p class="text-sm mt-2">Fallback: {{ ucfirst($analysisResult['fallback_prediction']) }}</p>
+                    @endif
+                </div>
+                @endif
+            </div>
+            
+            <!-- Recommendations -->
+            @if(isset($analysisResult['recommendations']))
+            <div class="mt-6 bg-white/10 backdrop-blur-sm rounded-lg p-4">
+                <h3 class="text-lg font-semibold mb-3">
+                    <i class="fas fa-lightbulb mr-2"></i>
+                    Rekomendasi
+                </h3>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    @foreach($analysisResult['recommendations'] as $category => $items)
+                    <div class="bg-white/10 rounded-lg p-3">
+                        <h4 class="font-semibold text-sm mb-2 capitalize">{{ ucfirst($category) }}</h4>
+                        <ul class="text-xs space-y-1">
+                            @foreach($items as $item)
+                            <li class="flex items-start">
+                                <i class="fas fa-check-circle mr-1 mt-0.5 text-green-300"></i>
+                                <span>{{ $item }}</span>
+                            </li>
+                            @endforeach
+                        </ul>
+                    </div>
+                    @endforeach
+                </div>
+            </div>
+            @endif
+        </div>
+        @endif
+        
+        @if(isset($error) && $error)
+        <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-8">
+            <div class="flex items-center">
+                <i class="fas fa-exclamation-triangle mr-2"></i>
+                <span class="font-semibold">Error:</span>
+                <span class="ml-2">{{ $error }}</span>
+            </div>
+        </div>
+        @endif
+
         <!-- Data Terbaru ESP32 -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
             <!-- Latest Reading -->
