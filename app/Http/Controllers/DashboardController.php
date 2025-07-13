@@ -309,8 +309,7 @@ class DashboardController extends Controller
             'blue_value' => $request->blue_value,
             'clear_value' => $request->clear_value ?? null,
             'temperature' => $request->temperature ?? null,
-            'humidity' => $request->humidity ?? null,
-            'reading_time' => now()
+            'humidity' => $request->humidity ?? null
         ]);
 
         Log::info('Sensor data received and saved in dashboard', [
@@ -332,7 +331,7 @@ class DashboardController extends Controller
             'clear_value' => $reading->clear_value,
             'temperature' => $reading->temperature,
             'humidity' => $reading->humidity,
-            'reading_time' => $reading->reading_time->format('Y-m-d H:i:s')
+            'reading_time' => $reading->created_at->format('Y-m-d H:i:s')
         ];
     }
 
