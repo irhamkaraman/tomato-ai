@@ -277,6 +277,180 @@ class TomatReadingController extends Controller
     }
 
     /**
+     * =====================================================================================
+     * ENDPOINT UNTUK MENERIMA DATA SENSOR DARI ESP32 MENGGUNAKAN GET METHOD
+     * =====================================================================================
+     *
+     * Method ini menerima data sensor dari ESP32 melalui parameter URL (GET method)
+     * dan memproses data dengan algoritma AI yang sama seperti method store.
+     *
+     * PARAMETER URL YANG DITERIMA:
+     * - device_id: ID perangkat ESP32
+     * - red_value: Nilai merah RGB (0-255)
+     * - green_value: Nilai hijau RGB (0-255)
+     * - blue_value: Nilai biru RGB (0-255)
+     * - clear_value: Nilai clear sensor warna
+     * - temperature: Suhu dalam Celsius
+     * - humidity: Kelembaban dalam persen
+     *
+     * @param Request $request
+     * @return \Illuminate\Http\Response
+     */
+    public function receiveSensorData(Request $request)
+    {
+        try {
+            // Log incoming request untuk debugging
+            Log::info('ESP32 GET data received', [
+                'device_id' => $request->query('device_id'),
+                'data' => $request->query()
+            ]);
+            
+            $validator = Validator::make($request->query(), [
+                'device_id' => 'required|string',
+                'red_value' => 'required|integer|min:0|max:255',
+                'green_value' => 'required|integer|min:0|max:255',
+                'blue_value' => 'required|integer|min:0|max:255',
+                'clear_value' => 'required|integer|min:0',
+                'temperature' => 'required|numeric',
+                'humidity' => 'required|numeric'
+            ]);
+
+            // Auto-create device if not exists
+            $device = \App\Models\Device::firstOrCreate(
+                ['device_id' => $request->query('device_id')],
+                [
+                    'name' => 'Auto-registered ' . $request->query('device_id'),
+                    'location' => 'Unknown'
+                ]
+            );
+
+            if ($validator->fails()) {
+                Log::warning('ESP32 GET data validation failed', [
+                    'device_id' => $request->query('device_id'),
+                    'errors' => $validator->errors(),
+                    'request_data' => $request->query()
+                ]);
+                
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validation error',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            // Get values from query parameters
+            $redValue = (int) $request->query('red_value');
+            $greenValue = (int) $request->query('green_value');
+            $blueValue = (int) $request->query('blue_value');
+            $clearValue = (int) $request->query('clear_value');
+            $temperature = (float) $request->query('temperature');
+            $humidity = (float) $request->query('humidity');
+            $deviceId = $request->query('device_id');
+
+            // Determine tomato maturity based on RGB values
+            $maturityLevel = $this->determineTomatoMaturity($redValue, $greenValue, $blueValue);
+
+            // Calculate confidence score
+            $confidenceScore = $this->calculateConfidenceScore($redValue, $greenValue, $blueValue, $maturityLevel);
+
+            // Determine status
+            $status = $this->determineStatus($maturityLevel);
+
+            // Generate recommendations
+            $recommendations = $this->generateRecommendations($maturityLevel);
+
+            // Generate decision tree analysis
+            $mlAnalysis = $this->generateDecisionTreeAnalysis([
+                'red' => $redValue,
+                'green' => $greenValue,
+                'blue' => $blueValue,
+            ]);
+
+            // Create the reading
+            try {
+                $reading = TomatReading::create([
+                    'device_id' => $deviceId,
+                    'red_value' => $redValue,
+                    'green_value' => $greenValue,
+                    'blue_value' => $blueValue,
+                    'clear_value' => $clearValue,
+                    'temperature' => $temperature,
+                    'humidity' => $humidity,
+                    'maturity_level' => $maturityLevel,
+                    'confidence_score' => $confidenceScore,
+                    'status' => $status,
+                    'recommendations' => $recommendations,
+                    'ml_analysis' => $mlAnalysis,
+                    'raw_sensor_data' => []
+                ]);
+                
+                Log::info('TomatReading created successfully via GET', [
+                    'reading_id' => $reading->id,
+                    'device_id' => $deviceId
+                ]);
+                
+            } catch (\Exception $e) {
+                Log::error('Failed to create TomatReading via GET', [
+                    'error' => $e->getMessage(),
+                    'device_id' => $deviceId,
+                    'data' => $request->query()
+                ]);
+                
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Failed to save sensor data',
+                    'error' => 'Database error occurred'
+                ], 500);
+            }
+
+            // Trigger real-time accuracy evaluation setelah data baru ditambahkan
+            try {
+                $this->modelEvaluationService->evaluateAllAlgorithms();
+                Log::info('Model accuracy evaluation completed after new GET reading', [
+                    'reading_id' => $reading->id,
+                    'maturity_level' => $maturityLevel
+                ]);
+            } catch (\Exception $e) {
+                Log::error('Failed to evaluate model accuracy via GET', [
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                    'reading_id' => $reading->id
+                ]);
+                // Jangan throw exception, biarkan response tetap sukses
+                // karena data sudah berhasil disimpan
+            }
+
+            Log::info('ESP32 GET data processed successfully', [
+                'reading_id' => $reading->id,
+                'device_id' => $deviceId,
+                'maturity_level' => $maturityLevel,
+                'confidence_score' => $confidenceScore
+            ]);
+            
+            return response()->json([
+                'success' => true,
+                'message' => 'Reading created successfully via GET',
+                'data' => $reading,
+                'recommendations' => $recommendations,
+                'analysis' => $mlAnalysis
+            ], 200);
+            
+        } catch (\Exception $e) {
+            Log::error('Critical error in receiveSensorData method', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'request_data' => $request->query()
+            ]);
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Internal server error occurred',
+                'error' => 'Data processing failed'
+            ], 500);
+        }
+    }
+
+    /**
      * Get readings for a specific device
      */
     public function getByDevice($deviceId)

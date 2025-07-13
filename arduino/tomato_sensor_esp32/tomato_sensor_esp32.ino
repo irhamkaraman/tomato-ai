@@ -27,11 +27,11 @@ const char *password = "12345678";
 // Device ID - GANTI SESUAI DATABASE
 const char *deviceId = "ESP32_SENSOR_001";
 
-// URL server API - Domain yang sudah di-hosting
-const char *serverUrl = "https://tomato-ai.lik.my.id/api/tomat-readings";
+// URL server API - Domain yang sudah di-hosting (GET endpoint)
+const char *serverUrl = "https://tomato-ai.lik.my.id/api/tomat-readings/sensor-data";
 
-// URL untuk development/testing lokal
-// const char *serverUrl = "http://localhost:8000/api/tomat-readings";
+// URL untuk development/testing lokal (GET endpoint)
+// const char *serverUrl = "http://localhost:8000/api/tomat-readings/sensor-data";
 
 // Interval baca/kirim data
 unsigned long lastSensorRead = 0;
@@ -54,7 +54,7 @@ struct SensorData
 SensorData currentData;
 
 /**
- * Fungsi untuk mengirim data ke server Laravel
+ * Fungsi untuk mengirim data ke server Laravel menggunakan GET method
  */
 bool sendDataToServer(SensorData data)
 {
@@ -64,39 +64,34 @@ bool sendDataToServer(SensorData data)
         return false;
     }
 
+    // Buat URL dengan parameter GET
+    String getUrl = String(serverUrl) + "?";
+    getUrl += "device_id=" + String(deviceId);
+    getUrl += "&red_value=" + String(data.red);
+    getUrl += "&green_value=" + String(data.green);
+    getUrl += "&blue_value=" + String(data.blue);
+    getUrl += "&clear_value=" + String(data.clear);
+    getUrl += "&temperature=" + String(round(data.temperature * 10) / 10.0, 1);
+    getUrl += "&humidity=" + String(round(data.humidity * 10) / 10.0, 1);
+
+    // Debug: Print URL yang digunakan
+    Serial.println("GET URL: " + getUrl);
+    Serial.println("URL Length: " + String(getUrl.length()));
+
     // Untuk HTTPS, gunakan WiFiClientSecure
     WiFiClientSecure client;
     client.setInsecure(); // Skip certificate verification (untuk testing)
 
     HTTPClient http;
-    http.begin(client, serverUrl);
+    http.begin(client, getUrl);
 
     // Tambahkan header yang diperlukan
-    http.addHeader("Content-Type", "application/json");
     http.addHeader("Accept", "application/json");
     http.addHeader("User-Agent", "ESP32-TomatoSensor/1.0");
     http.setTimeout(15000); // 15 detik timeout
 
-    // Debug: Print URL yang digunakan
-    Serial.println("Server URL: " + String(serverUrl));
-
-    StaticJsonDocument<300> jsonDoc;
-    jsonDoc["device_id"] = deviceId;
-    jsonDoc["red_value"] = data.red;
-    jsonDoc["green_value"] = data.green;
-    jsonDoc["blue_value"] = data.blue;
-    jsonDoc["clear_value"] = data.clear;
-    jsonDoc["temperature"] = round(data.temperature * 10) / 10.0;
-    jsonDoc["humidity"] = round(data.humidity * 10) / 10.0;
-
-    String jsonString;
-    serializeJson(jsonDoc, jsonString);
-
-    // Debug: Print payload
-    Serial.println("JSON Payload: " + jsonString);
-    Serial.println("Payload Length: " + String(jsonString.length()));
-
-    int httpResponseCode = http.POST(jsonString);
+    // Gunakan GET method
+    int httpResponseCode = http.GET();
     bool success = false;
 
     Serial.println("HTTP Response Code: " + String(httpResponseCode));
@@ -106,7 +101,7 @@ bool sendDataToServer(SensorData data)
         String response = http.getString();
         Serial.println("Server Response: " + response);
 
-        if (httpResponseCode == 200 || httpResponseCode == 201)
+        if (httpResponseCode == 200)
         {
             Serial.println("✓ Data berhasil dikirim ke server");
             displayStatus("OK", true);

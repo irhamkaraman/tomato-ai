@@ -6,7 +6,8 @@ use Illuminate\Support\Facades\Route;
 // Route untuk ESP32 - endpoint utama untuk menerima data sensor
 Route::prefix('tomat-readings')->group(function () {
     Route::get('/', [TomatReadingController::class, 'index']);
-    Route::post('/', [TomatReadingController::class, 'store']); // Endpoint untuk ESP32
+    Route::post('/', [TomatReadingController::class, 'store']); // Endpoint untuk ESP32 (POST)
+    Route::get('/sensor-data', [TomatReadingController::class, 'receiveSensorData']); // Endpoint untuk ESP32 (GET)
     Route::get('/{id}', [TomatReadingController::class, 'show']);
     
     // Model Accuracy Evaluation Routes
