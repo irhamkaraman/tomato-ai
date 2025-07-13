@@ -50,14 +50,14 @@ class DashboardController extends Controller
                 } else {
                     // Proses data sensor
                     $sensorData = $this->processSensorData($request);
-                    
+
                     // Lakukan analisis AI
                     $analysisResult = $this->performAIAnalysis(
                         $sensorData['red_value'],
                         $sensorData['green_value'],
                         $sensorData['blue_value']
                     );
-                    
+
                     // Update reading dengan hasil analisis
                     $this->updateReadingWithAnalysis($sensorData['id'], $analysisResult);
                 }
@@ -72,39 +72,39 @@ class DashboardController extends Controller
 
         // Data untuk dashboard
         $dashboardData = $this->getDashboardData();
-        
+
         // Ambil data terbaru dari ESP32
         $latestReading = TomatReading::latest()->first();
-        
+
         // Cek status ESP32 (online jika ada data dalam 5 menit terakhir)
         $esp32Status = 'offline';
         if ($latestReading && $latestReading->created_at->diffInMinutes(now()) <= 5) {
             $esp32Status = 'online';
         }
-        
+
         // Ambil 10 data terbaru untuk ditampilkan
         $recentReadings = TomatReading::with([])
             ->orderBy('created_at', 'desc')
             ->limit(10)
             ->get();
-        
+
         // Statistik sistem pakar
         $totalReadings = TomatReading::count();
         $totalTrainingData = TrainingData::where('is_active', true)->count();
-        
+
         // Distribusi tingkat kematangan
         $maturityDistribution = TomatReading::select('maturity_level', DB::raw('count(*) as count'))
             ->whereNotNull('maturity_level')
             ->groupBy('maturity_level')
             ->get();
-        
+
         // Akurasi rata-rata
         $averageConfidence = TomatReading::whereNotNull('confidence_score')
             ->avg('confidence_score');
-        
+
         return view('dashboard.index', compact(
             'latestReading',
-            'esp32Status', 
+            'esp32Status',
             'recentReadings',
             'totalReadings',
             'totalTrainingData',
@@ -116,20 +116,20 @@ class DashboardController extends Controller
             'dashboardData'
         ));
     }
-    
+
     /**
      * API untuk mendapatkan data terbaru (untuk real-time update)
      */
     public function getLatestData()
     {
         $latestReading = TomatReading::latest()->first();
-        
+
         // Cek status ESP32
         $esp32Status = 'offline';
         if ($latestReading && $latestReading->created_at->diffInMinutes(now()) <= 5) {
             $esp32Status = 'online';
         }
-        
+
         return response()->json([
             'status' => 'success',
             'esp32_status' => $esp32Status,
@@ -137,7 +137,7 @@ class DashboardController extends Controller
             'timestamp' => now()->toISOString()
         ]);
     }
-    
+
     /**
      * API untuk mendapatkan data readings terbaru
      */
@@ -146,13 +146,13 @@ class DashboardController extends Controller
         $recentReadings = TomatReading::orderBy('created_at', 'desc')
             ->limit(10)
             ->get();
-            
+
         return response()->json([
             'status' => 'success',
             'readings' => $recentReadings
         ]);
     }
-    
+
     /**
      * Simpan data reading sebagai training data
      */
@@ -164,23 +164,23 @@ class DashboardController extends Controller
                 'maturity_class' => 'required|in:mentah,setengah_matang,matang,busuk',
                 'description' => 'nullable|string|max:500'
             ]);
-            
+
             $reading = TomatReading::findOrFail($request->reading_id);
-            
+
             // Cek apakah data sudah ada di training data
             $existingTraining = TrainingData::where('red_value', $reading->red_value)
                 ->where('green_value', $reading->green_value)
                 ->where('blue_value', $reading->blue_value)
                 ->where('maturity_class', $request->maturity_class)
                 ->first();
-                
+
             if ($existingTraining) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Data training dengan nilai RGB dan kelas yang sama sudah ada'
                 ], 400);
             }
-            
+
             // Simpan sebagai training data
             $trainingData = TrainingData::create([
                 'red_value' => $reading->red_value,
@@ -190,7 +190,7 @@ class DashboardController extends Controller
                 'description' => $request->description ?? "Data dari ESP32 - {$reading->device_id} pada {$reading->created_at->format('Y-m-d H:i:s')}",
                 'is_active' => true
             ]);
-            
+
             Log::info('Data training baru ditambahkan', [
                 'training_id' => $trainingData->id,
                 'source_reading_id' => $reading->id,
@@ -201,26 +201,26 @@ class DashboardController extends Controller
                 ],
                 'maturity_class' => $request->maturity_class
             ]);
-            
+
             return response()->json([
                 'status' => 'success',
                 'message' => 'Data berhasil disimpan sebagai training data',
                 'training_data' => $trainingData
             ]);
-            
+
         } catch (\Exception $e) {
             Log::error('Error saving training data', [
                 'error' => $e->getMessage(),
                 'request_data' => $request->all()
             ]);
-            
+
             return response()->json([
                 'status' => 'error',
                 'message' => 'Terjadi kesalahan saat menyimpan data training'
             ], 500);
         }
     }
-    
+
     /**
      * Hapus data reading
      */
@@ -230,33 +230,33 @@ class DashboardController extends Controller
             $request->validate([
                 'reading_id' => 'required|exists:tomat_readings,id'
             ]);
-            
+
             $reading = TomatReading::findOrFail($request->reading_id);
             $reading->delete();
-            
+
             Log::info('Data reading dihapus', [
                 'reading_id' => $request->reading_id,
                 'device_id' => $reading->device_id
             ]);
-            
+
             return response()->json([
                 'status' => 'success',
                 'message' => 'Data reading berhasil dihapus'
             ]);
-            
+
         } catch (\Exception $e) {
             Log::error('Error deleting reading', [
                 'error' => $e->getMessage(),
                 'reading_id' => $request->reading_id
             ]);
-            
+
             return response()->json([
                 'status' => 'error',
                 'message' => 'Terjadi kesalahan saat menghapus data'
             ], 500);
         }
     }
-    
+
     /**
      * Dapatkan statistik sistem pakar
      */
@@ -278,17 +278,17 @@ class DashboardController extends Controller
                     ->limit(5)
                     ->get()
             ];
-            
+
             return response()->json([
                 'status' => 'success',
                 'stats' => $stats
             ]);
-            
+
         } catch (\Exception $e) {
             Log::error('Error getting system stats', [
                 'error' => $e->getMessage()
             ]);
-            
+
             return response()->json([
                 'status' => 'error',
                 'message' => 'Terjadi kesalahan saat mengambil statistik'
@@ -331,7 +331,6 @@ class DashboardController extends Controller
             'clear_value' => $reading->clear_value,
             'temperature' => $reading->temperature,
             'humidity' => $reading->humidity,
-            'reading_time' => $reading->created_at->format('Y-m-d H:i:s')
         ];
     }
 
@@ -343,13 +342,13 @@ class DashboardController extends Controller
         try {
             // 1. Decision Tree Analysis
             $decisionTreeResult = $this->analyzeWithDecisionTree($red, $green, $blue);
-            
+
             // 2. KNN Analysis
             $knnResult = $this->analyzeWithKNN($red, $green, $blue);
-            
+
             // 3. Random Forest Analysis
             $randomForestResult = $this->analyzeWithRandomForest($red, $green, $blue);
-            
+
             // 4. Ensemble Voting
             $ensembleResult = $this->calculateEnsembleVoting(
                 $decisionTreeResult['classification'],
@@ -381,7 +380,7 @@ class DashboardController extends Controller
                 'error' => $e->getMessage(),
                 'rgb' => ['red' => $red, 'green' => $green, 'blue' => $blue]
             ]);
-            
+
             return [
                 'error' => 'Analisis AI gagal',
                 'fallback_prediction' => 'mentah',
@@ -504,9 +503,9 @@ class DashboardController extends Controller
         $finalPrediction = key($votes);
         $maxVotes = current($votes);
         $totalVotes = count($predictions);
-        
+
         $confidence = $maxVotes / $totalVotes;
-        
+
         $consensus = 'No Consensus';
         if ($maxVotes === $totalVotes) {
             $consensus = 'Unanimous';
@@ -534,7 +533,7 @@ class DashboardController extends Controller
     private function generateRecommendations($maturityLevel)
     {
         $recommendations = Recommendation::getRecommendationsByMaturityLevel($maturityLevel);
-        
+
         if (empty($recommendations)) {
             // Fallback recommendations
             $fallbackRecommendations = [
@@ -563,10 +562,10 @@ class DashboardController extends Controller
                     'timeframe' => ['Buang segera']
                 ]
             ];
-            
+
             return $fallbackRecommendations[$maturityLevel] ?? $fallbackRecommendations['mentah'];
         }
-        
+
         return $recommendations;
     }
 
@@ -578,7 +577,7 @@ class DashboardController extends Controller
         $red = $features['red'];
         $green = $features['green'];
         $blue = $features['blue'];
-        
+
         if ($red > 150 && $red > $green * 1.5) {
             return ['classification' => 'matang', 'confidence' => 0.8];
         } elseif ($green > $red && $green > 120) {
@@ -603,7 +602,7 @@ class DashboardController extends Controller
 
         while ($iteration < $maxIterations) {
             $rule = $rules->where('node_type', $currentNode)->first();
-            
+
             if (!$rule) {
                 break;
             }
@@ -659,7 +658,7 @@ class DashboardController extends Controller
                     'analysis_method' => 'ensemble_ai',
                     'analysis_details' => json_encode($analysisResult)
                 ]);
-                
+
                 Log::info('Reading updated with AI analysis', [
                     'reading_id' => $readingId,
                     'prediction' => $analysisResult['ensemble']['prediction'],
