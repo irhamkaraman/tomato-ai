@@ -1738,22 +1738,20 @@ class TomatReadingController extends Controller
     private function calculateEnsembleVoting($decisionTreeResult, $knnResult, $randomForestResult)
     {
         // TAHAP 1: Ekstrak kelas dari hasil decision tree
-        // Decision tree mengembalikan string deskriptif, perlu ekstraksi kelas
-        preg_match('/Klasifikasi sebagai tomat (\w+)/', $decisionTreeResult, $matches);
-        $decisionTreeClass = $matches[1] ?? 'unknown';
+        // Decision tree mengembalikan string langsung (mentah, matang, setengah_matang, busuk)
+        $decisionTreeClass = $decisionTreeResult;
 
         // TAHAP 2: Implementasi Majority Voting
-        // Setiap algoritma mendapat satu suara dengan bobot yang sama
-        $votes = [
-            $decisionTreeClass => 1,
-            $knnResult => 1,
-            $randomForestResult => 1
-        ];
-
-        // TAHAP 3: Hitung voting dan tentukan pemenang
+        // Kumpulkan semua prediksi dalam array
+        $predictions = [$decisionTreeClass, $knnResult, $randomForestResult];
+        
+        // Hitung voting untuk setiap kelas
+        $votes = array_count_values($predictions);
+        
+        // TAHAP 3: Tentukan pemenang berdasarkan voting terbanyak
         arsort($votes); // Urutkan berdasarkan jumlah suara (descending)
-        $finalPrediction = key($votes);
-        $maxVotes = max($votes);
+        $finalPrediction = array_key_first($votes);
+        $maxVotes = $votes[$finalPrediction];
 
         // TAHAP 4: Hitung confidence berdasarkan tingkat konsensus
         // Semakin banyak algoritma yang setuju, semakin tinggi confidence
