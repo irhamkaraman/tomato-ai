@@ -3,7 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\DashboardController;
 
-require __DIR__ . '/api.php';
+// require __DIR__ . '/api.php';
 
 // Dashboard Route
 Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
